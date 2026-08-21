@@ -6,10 +6,10 @@
 ## Команды
 
 ```bash
-npm --prefix alphacentr/site run build   # собрать dist/
-npm --prefix alphacentr/site test        # проверки полноты и ссылок
-npm --prefix alphacentr/site run check   # сборка + тесты
-npm --prefix alphacentr/site run dev     # сборка и просмотр на localhost:4321
+npm --prefix site run build   # собрать dist/
+npm --prefix site test        # проверки полноты и ссылок
+npm --prefix site run check   # сборка + тесты
+npm --prefix site run dev     # сборка и просмотр на localhost:4321
 ```
 
 Зависимостей нет — `npm install` не требуется. Нужен Node 22.18 или новее.
@@ -122,17 +122,23 @@ CSS собирается из пяти слоёв в фиксированном 
 `dist/`. `worker/index.ts` нужен только для заголовков безопасности (CSP,
 HSTS, `X-Frame-Options` и прочее) — их пайплайн ассетов сам не проставляет.
 
-| Настройка | Значение |
+| Настройка | Значение после перехода |
 | --- | --- |
 | Имя Worker | `alphacentr` |
 | Стабильный URL | `https://alphacentr.ks-design.workers.dev` |
-| Корневой каталог | `alphacentr/site` |
+| Репозиторий | `kiaquila/alphacentr` |
+| Продакшн-ветка | `main` |
+| Корневой каталог | `site` |
 | Команда сборки | `npm run build` |
 | Деплой стабильного стенда | `npm run stage:deploy` |
 | Превью для ветки | `npm run stage:preview` |
-| Отслеживаемый путь | `alphacentr/*` |
+| Отслеживаемый путь | не задан (репозиторий однопроектный) |
 
-Репозиторий `kiaquila/web-design` подключён к Worker через Workers Builds.
+Git-подключение Worker всё ещё указывает на `kiaquila/web-design` с корневым
+каталогом `alphacentr/site`, поэтому из этого репозитория пока ничего не
+публикуется. Точная процедура перехода и отката, запись текущего развёртывания
+и список проверок после перехода — в
+[`../docs/migration/cloudflare-cutover.md`](../docs/migration/cloudflare-cutover.md).
 Учётные данные и токены живут только на стороне Cloudflare и в репозитории не
 хранятся.
 

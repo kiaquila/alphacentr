@@ -45,14 +45,21 @@
 ## Что где лежит
 
 ```text
-alphacentr/
+.
 ├── README.md          # этот файл — контекст, концепция, решения
 ├── AGENTS.md          # правила работы с проектом
 ├── CONTENT-AUDIT.md   # провенанс контента, исключения, открытые вопросы
+├── docs/migration/    # провенанс переноса и план перехода Cloudflare
 └── site/              # реализация: статическая сборка на Node без фреймворка
 ```
 
 Подробности реализации — в [`site/README.md`](./site/README.md).
+
+Проект перенесён из многопроектного репозитория `kiaquila/web-design` в
+отдельный репозиторий. Провенанс переноса и доказательства —
+в [`docs/migration/source-provenance.md`](./docs/migration/source-provenance.md);
+текущее развёртывание, процедура перехода и отката Cloudflare —
+в [`docs/migration/cloudflare-cutover.md`](./docs/migration/cloudflare-cutover.md).
 
 ## Объём перенесённого контента
 
@@ -109,15 +116,15 @@ alphacentr/
 
 ## Проверки
 
-Из корня репозитория:
+Из корня репозитория — ровно то, что запускает CI:
 
 ```bash
-node scripts/check-repository.mjs
-npm --prefix alphacentr/site run check
+npm run preflight      # политика репозитория, дрейф baseline-файлов, тесты baseline
+npm run project:check  # npm --prefix site run check: сборка + тесты сайта
 ```
 
 Локальный просмотр:
 
 ```bash
-npm --prefix alphacentr/site run dev
+npm --prefix site run dev
 ```
