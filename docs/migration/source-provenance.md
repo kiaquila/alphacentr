@@ -141,7 +141,7 @@ analytics, external font, or protected book text.
 ## Baseline pin and its required follow-up
 
 `.web-design/lock.json` pins the baseline at
-`f042879d8b6d11cc80021bb19cc4aacd645cc621`, version `0.1.0-dev`. This is a
+`8ad23395c5d31e8a87bd82ca25ba91f2053e5c3b`, version `0.1.0-dev`. This is a
 **provisional** pin: at migration time `kiaquila/web-design` had no immutable
 stable release of the project template, and the draft pull request that
 introduces it was explicitly not to be merged.
@@ -162,5 +162,11 @@ npm run sync:web-design -- apply --source-ref <stable-release-sha> --version <ve
 ```
 
 Until then, `baseline-source-verification` resolves the pin against a commit
-that lives on a feature branch of the source repository. The source repository
-is public, so the check needs no `WEB_DESIGN_READ_TOKEN`.
+that lives on a feature branch of the source repository. `kiaquila/web-design`
+is public for the duration of the migration, so the check falls back to this
+repository's own `github.token` and needs no `WEB_DESIGN_READ_TOKEN`. That
+depends on the source's visibility, not on anything here: if the owner later
+makes `kiaquila/web-design` private, this check starts failing because the
+repository token cannot read another private repository, and the read-only
+secret described in `docs/operations/github-setup.md` becomes required. Re-read
+the source's visibility before trusting this paragraph rather than assuming it.
