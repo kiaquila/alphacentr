@@ -141,7 +141,7 @@ analytics, external font, or protected book text.
 ## Baseline pin and its required follow-up
 
 `.web-design/lock.json` pins the baseline at
-`f567b125e4ecf07922a6b2f98b5cf17b338b478d`, version `0.1.0-dev`. This is a
+`6e0050b035ba2f7bd7584fade4a028278e06e779`, version `0.1.0-dev`. This is a
 **provisional** pin: at migration time `kiaquila/web-design` had no immutable
 stable release of the project template, and the draft pull request that
 introduces it was explicitly not to be merged.
