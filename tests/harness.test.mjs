@@ -4,7 +4,7 @@
    real 828-page build and stay fast. */
 
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -311,6 +311,67 @@ test("repository policy rejects secrets and unsafe triggers", () => {
     assert.equal(result.status, 1);
     assert.match(result.stderr, /pull_request_target/);
     assert.match(result.stderr, /may not consume repository secrets/);
+  });
+});
+
+test("repository policy rejects every secrets access form", () => {
+  for (const step of [
+    "      - run: echo ${{ secrets.DEPLOY_TOKEN }}",
+    "      - run: echo ${{ secrets['DEPLOY_TOKEN'] }}",
+    '      - run: echo ${{ secrets["DEPLOY_TOKEN"] }}',
+    "      - uses: ./local\n        secrets: inherit"
+  ]) {
+    withFixture((root) => {
+      const path = join(root, ".github/workflows/ci.yml");
+      const workflow = readFileSync(path, "utf8")
+        .replace("      - name: Setup Node", `${step}\n      - name: Setup Node`);
+      writeFileSync(path, workflow);
+      const result = run(root, "check-repository.mjs");
+      assert.equal(result.status, 1, `accepted secret access: ${step}`);
+      assert.match(result.stderr, /may not consume repository secrets/);
+    });
+  }
+});
+
+test("the automatic GITHUB_TOKEN stays usable", () => {
+  withFixture((root) => {
+    const path = join(root, ".github/workflows/ci.yml");
+    const workflow = readFileSync(path, "utf8")
+      .replace("      - name: Setup Node", "      - run: gh repo view\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n      - name: Setup Node");
+    writeFileSync(path, workflow);
+    const result = run(root, "check-repository.mjs");
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+
+test("container actions must be pinned by digest", () => {
+  const digest = `@sha256:${"a".repeat(64)}`;
+  for (const [action, status] of [
+    ["docker://alpine:latest", 1],
+    ["docker://alpine", 1],
+    [`docker://alpine${digest}`, 0]
+  ]) {
+    withFixture((root) => {
+      const path = join(root, ".github/workflows/ci.yml");
+      const workflow = readFileSync(path, "utf8")
+        .replace("      - name: Setup Node", `      - uses: ${action}\n      - name: Setup Node`);
+      writeFileSync(path, workflow);
+      const result = run(root, "check-repository.mjs");
+      assert.equal(result.status, status, `${action}\n${result.stderr}`);
+      if (status === 1) assert.match(result.stderr, /Container action is not pinned to a digest/);
+    });
+  }
+});
+
+test("a dangling symlink is still rejected", () => {
+  /* existsSync is false for a link whose target is missing, so checking
+     existence before lstat would skip the entry and miss the link. */
+  withFixture((root) => {
+    symlinkSync("does-not-exist.txt", join(root, "dangling.txt"));
+    spawnSync("git", ["add", "-Af"], { cwd: root, encoding: "utf8" });
+    const result = run(root, "check-repository.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Symbolic links are not allowed: dangling\.txt/);
   });
 });
 

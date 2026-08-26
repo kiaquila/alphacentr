@@ -140,9 +140,16 @@ function checkFileContents(file) {
     failures.push(`Sensitive or local-only file is tracked: ${normalized}`);
   }
 
+  /* lstat before any existence test: a symlink whose target is missing makes
+     existsSync false, so checking that first would skip the entry entirely and
+     let a dangling link through the no-symlink rule. */
   const path = join(root, file);
-  if (!existsSync(path)) return;
-  const stat = lstatSync(path);
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    return;
+  }
   if (stat.isSymbolicLink()) {
     failures.push(`Symbolic links are not allowed: ${normalized}`);
     return;
@@ -190,12 +197,26 @@ function checkWorkflow(workflow) {
   for (const entry of permissionFailures(text)) {
     failures.push(`Workflow may not grant write permissions (${entry}) in ${workflow}`);
   }
-  if (/\bsecrets\.(?!GITHUB_TOKEN\b)[A-Za-z_][A-Za-z0-9_]*/.test(text)) {
-    failures.push(`Workflow may not consume repository secrets in ${workflow}`);
+  /* A workflow that validates proposed code has no business reading a
+     repository secret. Only `secrets.GITHUB_TOKEN` — the automatic,
+     permission-scoped token this file already constrains to read — is allowed;
+     every other way of naming the context is refused, including the bracket
+     form `secrets['NAME']` and `secrets: inherit` on a reusable workflow. */
+  for (const match of text.matchAll(/\bsecrets[ \t]*[.[:]/g)) {
+    if (/^secrets[ \t]*\.[ \t]*GITHUB_TOKEN\b/.test(text.slice(match.index))) continue;
+    failures.push(`Workflow may not consume repository secrets in ${workflow}: ${match[0]}`);
   }
   for (const match of text.matchAll(/^\s*-?\s*uses:\s*["']?([^\s"']+)["']?\s*(?:#.*)?$/gm)) {
     const action = match[1];
-    if (action.startsWith("./") || action.startsWith("docker://")) continue;
+    if (action.startsWith("./")) continue;
+    /* A container tag is mutable, so its publisher can change what CI runs
+       without any commit here. Only a digest names fixed bytes. */
+    if (action.startsWith("docker://")) {
+      if (!/@sha256:[a-f0-9]{64}$/.test(action)) {
+        failures.push(`Container action is not pinned to a digest in ${workflow}: ${action}`);
+      }
+      continue;
+    }
     const ref = action.slice(action.lastIndexOf("@") + 1);
     if (!/^[a-f0-9]{40}$/.test(ref)) {
       failures.push(`Action is not pinned to a full SHA in ${workflow}: ${action}`);
