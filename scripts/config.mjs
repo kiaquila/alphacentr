@@ -142,11 +142,22 @@ function validatePageFamilies(families, output) {
     if (family.representative !== undefined) {
       errors.push(...collect(() => resolveWithin(output, family.representative, `${label}.representative`)));
     }
-    if (!positiveInteger(family.gzipBytes)) errors.push(`${label}.gzipBytes must be positive`);
-    if (!positiveInteger(family.measuredGzipBytes)) {
-      errors.push(`${label}.measuredGzipBytes must record the measured baseline`);
-    } else if (positiveInteger(family.gzipBytes) && family.gzipBytes < family.measuredGzipBytes) {
-      errors.push(`${label}.gzipBytes is below its own recorded measurement`);
+    /* A family may legitimately reference no media of its own beyond the
+       shared assets, so its measured media baseline can be zero; the budget
+       still has to be a real number so a later image is bounded. */
+    for (const [limit, measured, allowZero] of [
+      ["gzipBytes", "measuredGzipBytes", false],
+      ["mediaRawBytes", "measuredMediaRawBytes", true]
+    ]) {
+      if (!positiveInteger(family[limit])) errors.push(`${label}.${limit} must be positive`);
+      const recorded = allowZero
+        ? Number.isInteger(family[measured]) && family[measured] >= 0
+        : positiveInteger(family[measured]);
+      if (!recorded) {
+        errors.push(`${label}.${measured} must record the measured baseline`);
+      } else if (positiveInteger(family[limit]) && family[limit] < family[measured]) {
+        errors.push(`${label}.${limit} is below its own recorded measurement`);
+      }
     }
   }
   return errors;

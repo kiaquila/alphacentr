@@ -39,8 +39,22 @@ const FIXTURE_CONFIG = {
     outputDirectory: "site/dist",
     allowedExtensions: [".css", ".html", ".js", ".webp"],
     pageFamilies: [
-      { name: "home", pattern: "^index\\.html$", measuredGzipBytes: 60, gzipBytes: 4096 },
-      { name: "other pages", pattern: "^.+/index\\.html$", measuredGzipBytes: 60, gzipBytes: 4096 }
+      {
+        name: "home",
+        pattern: "^index\\.html$",
+        measuredGzipBytes: 60,
+        gzipBytes: 4096,
+        measuredMediaRawBytes: 0,
+        mediaRawBytes: 4096
+      },
+      {
+        name: "other pages",
+        pattern: "^.+/index\\.html$",
+        measuredGzipBytes: 60,
+        gzipBytes: 4096,
+        measuredMediaRawBytes: 0,
+        mediaRawBytes: 4096
+      }
     ],
     sharedAssets: [
       { name: "stylesheet", files: ["assets/styles.css"], measuredGzipBytes: 40, gzipBytes: 2048 },
@@ -237,6 +251,23 @@ test("a new page-wide stylesheet must be budgeted", () => {
     const result = run(root, "check-performance-budget.mjs");
     assert.equal(result.status, 1);
     assert.match(result.stderr, /Shared asset is not budgeted: assets\/extra\.css/);
+  });
+});
+
+test("images a page references count against its family budget", () => {
+  /* A catalogue page pulls in dozens of covers, so budgeting only the HTML
+     would leave most of its real weight unmeasured while each image stayed
+     under the per-file ceiling. */
+  withFixture((root) => {
+    write(root, "site/dist/assets/media/cover.webp", randomBytes(6 * 1024));
+    write(
+      root,
+      "site/dist/index.html",
+      '<!doctype html><title>Home</title><img src="/assets/media/cover.webp" />\n'
+    );
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Media of home \(index\.html\): \d+ B exceeds 4096 B/);
   });
 });
 

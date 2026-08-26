@@ -4,3 +4,8 @@
 /scripts/ @kiaquila
 /tests/ @kiaquila
 /web-design.config.json @kiaquila
+# ci.yml runs `npm run preflight` directly, so these manifests decide whether
+# the guard runs at all — they belong inside the same trust boundary.
+/package.json @kiaquila
+/package-lock.json @kiaquila
+/site/package.json @kiaquila

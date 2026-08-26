@@ -31,91 +31,117 @@
         "pattern": "^index\\.html$",
         "representative": "index.html",
         "measuredGzipBytes": 8794,
-        "gzipBytes": 10240
+        "gzipBytes": 10240,
+        "measuredMediaRawBytes": 403104,
+        "mediaRawBytes": 462848
       },
       {
         "name": "catalogue index",
         "pattern": "^catalog/index\\.html$",
         "representative": "catalog/index.html",
         "measuredGzipBytes": 5602,
-        "gzipBytes": 6656
+        "gzipBytes": 6656,
+        "measuredMediaRawBytes": 180844,
+        "mediaRawBytes": 208896
       },
       {
         "name": "catalogue category",
         "pattern": "^catalog/[^/]+/index\\.html$",
         "representative": "catalog/samorazvitie_i_lichnostnyy_rost/index.html",
         "measuredGzipBytes": 8511,
-        "gzipBytes": 10240
+        "gzipBytes": 10240,
+        "measuredMediaRawBytes": 1876372,
+        "mediaRawBytes": 2097152
       },
       {
         "name": "session page",
         "pattern": "^catalog/[^/]+/[^/]+/index\\.html$",
         "representative": "catalog/emotsionalnaya_zavisimost/552/index.html",
         "measuredGzipBytes": 16029,
-        "gzipBytes": 18432
+        "gzipBytes": 18432,
+        "measuredMediaRawBytes": 133186,
+        "mediaRawBytes": 155648
       },
       {
         "name": "articles index",
         "pattern": "^stati/index\\.html$",
         "representative": "stati/index.html",
         "measuredGzipBytes": 5077,
-        "gzipBytes": 6144
+        "gzipBytes": 6144,
+        "measuredMediaRawBytes": 89570,
+        "mediaRawBytes": 106496
       },
       {
         "name": "article section",
         "pattern": "^stati/[^/]+/index\\.html$",
         "representative": "stati/lechenie_zabolevaniy_gipnozom/index.html",
         "measuredGzipBytes": 9816,
-        "gzipBytes": 11264
+        "gzipBytes": 11264,
+        "measuredMediaRawBytes": 0,
+        "mediaRawBytes": 40960
       },
       {
         "name": "article page",
         "pattern": "^stati/[^/]+/[^/]+/index\\.html$",
         "representative": "stati/knigi_na_temu_psikhologii/v_m_bekhterev_bessmertie_chelovecheskoy_lichnosti_kak_nauchnaya_problema/index.html",
         "measuredGzipBytes": 42329,
-        "gzipBytes": 47104
+        "gzipBytes": 47104,
+        "measuredMediaRawBytes": 321644,
+        "mediaRawBytes": 368640
       },
       {
         "name": "author landing",
         "pattern": "^avtor/index\\.html$",
         "representative": "avtor/index.html",
         "measuredGzipBytes": 4488,
-        "gzipBytes": 5632
+        "gzipBytes": 5632,
+        "measuredMediaRawBytes": 0,
+        "mediaRawBytes": 40960
       },
       {
         "name": "author page",
         "pattern": "^avtor/[^/]+/index\\.html$",
         "representative": "avtor/obo-mne/index.html",
         "measuredGzipBytes": 10284,
-        "gzipBytes": 11776
+        "gzipBytes": 11776,
+        "measuredMediaRawBytes": 0,
+        "mediaRawBytes": 40960
       },
       {
         "name": "press item",
         "pattern": "^avtor/pressa-i-tv/[^/]+/[^/]+/index\\.html$",
         "representative": "avtor/pressa-i-tv/spetsialnyy-redaktor-knigi-dlya-detey-krolik-kotoryy-khochet-usnut-avtor-k-y-f-erlin-izdatelstvo-mif/538/index.html",
         "measuredGzipBytes": 4333,
-        "gzipBytes": 5120
+        "gzipBytes": 5120,
+        "measuredMediaRawBytes": 0,
+        "mediaRawBytes": 40960
       },
       {
         "name": "testimonials",
         "pattern": "^otzyvy/index\\.html$",
         "representative": "otzyvy/index.html",
         "measuredGzipBytes": 32122,
-        "gzipBytes": 36864
+        "gzipBytes": 36864,
+        "measuredMediaRawBytes": 0,
+        "mediaRawBytes": 40960
       },
       {
         "name": "FAQ",
         "pattern": "^info/faq/index\\.html$",
         "representative": "info/faq/index.html",
         "measuredGzipBytes": 17891,
-        "gzipBytes": 20480
+        "gzipBytes": 20480,
+        "measuredMediaRawBytes": 0,
+        "mediaRawBytes": 40960
       },
       {
         "name": "editorial, legal and news",
         "pattern": "^(?!index\\.html$|catalog/|stati/|avtor/|otzyvy/index\\.html$|info/faq/index\\.html$).*index\\.html$",
         "representative": "info/index.html",
         "measuredGzipBytes": 17893,
-        "gzipBytes": 20480
+        "gzipBytes": 20480,
+        "measuredMediaRawBytes": 0,
+        "mediaRawBytes": 40960
       }
     ],
     "sharedAssets": [

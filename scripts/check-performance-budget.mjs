@@ -48,16 +48,37 @@ function overBudget(label, measured, limit) {
    while any of the other 817 grew past it unnoticed, so the representative is
    derived from the build rather than read from the config. Every page must
    belong to exactly one family, so none is left unbudgeted. */
-function checkPageFamilies(families, output, files, report) {
+/* The media a page pulls in beyond the shared assets. A category page
+   references 86 covers, so budgeting the HTML alone would leave the bulk of its
+   real weight unmeasured while the per-file ceiling saw nothing wrong with any
+   single image. Shared assets are excluded because they are budgeted once,
+   separately — a visitor fetches them on the first page and reuses them. */
+function referencedMediaBytes(html, sizes, shared) {
+  let total = 0;
+  const seen = new Set();
+  for (const match of html.matchAll(/(?:src|href)="\/(assets\/[^"]+)"/g)) {
+    const asset = match[1];
+    if (seen.has(asset) || shared.has(asset)) continue;
+    seen.add(asset);
+    total += sizes.get(asset) ?? 0;
+  }
+  return total;
+}
+
+function checkPageFamilies(families, output, files, shared, report) {
   const failures = [];
   const pages = files
     .filter((file) => file.endsWith(".html"))
     .map((file) => relative(output, file).split(sep).join("/"));
+  const sizes = new Map(
+    files.map((file) => [relative(output, file).split(sep).join("/"), lstatSync(file).size])
+  );
   const claimed = new Map();
 
   for (const family of families) {
     const pattern = new RegExp(family.pattern);
     let heaviest = { page: null, gzip: 0 };
+    let media = { page: null, bytes: 0 };
     let count = 0;
     for (const page of pages) {
       if (!pattern.test(page)) continue;
@@ -67,15 +88,20 @@ function checkPageFamilies(families, output, files, report) {
         continue;
       }
       claimed.set(page, family.name);
-      const measured = gzipBytes(readFileSync(join(output, page)));
+      const html = readFileSync(join(output, page));
+      const measured = gzipBytes(html);
       if (measured > heaviest.gzip) heaviest = { page, gzip: measured };
+      const bytes = referencedMediaBytes(html.toString("utf8"), sizes, shared);
+      if (bytes > media.bytes) media = { page, bytes };
     }
     if (count === 0) {
       failures.push(`Page family "${family.name}" matches no built page`);
       continue;
     }
-    report.push(`  ${family.name} (${count}): ${heaviest.gzip} B gzip / ${family.gzipBytes} B budget — ${heaviest.page}`);
+    report.push(`  ${family.name} (${count}): ${heaviest.gzip} B gzip HTML / ${family.gzipBytes} B — ${heaviest.page}`);
+    report.push(`    heaviest media: ${media.bytes} B raw / ${family.mediaRawBytes} B${media.page ? ` — ${media.page}` : " — none beyond shared"}`);
     failures.push(...overBudget(`Heaviest ${family.name} (${heaviest.page})`, heaviest.gzip, family.gzipBytes));
+    failures.push(...overBudget(`Media of ${family.name} (${media.page ?? family.name})`, media.bytes, family.mediaRawBytes));
   }
 
   for (const page of pages) {
@@ -156,7 +182,8 @@ export function checkPerformance(root) {
   }
 
   report.push(`Critical HTML, heaviest page of each family (${files.filter((file) => file.endsWith(".html")).length} pages):`);
-  failures.push(...checkPageFamilies(performance.pageFamilies, output, files, report));
+  const shared = new Set(performance.sharedAssets.flatMap((asset) => asset.files));
+  failures.push(...checkPageFamilies(performance.pageFamilies, output, files, shared, report));
   report.push("Shared assets loaded by every page:");
   failures.push(...checkSharedAssets(performance.sharedAssets, output, report));
   failures.push(...checkUnbudgetedShared(performance.sharedAssets, output, files));
