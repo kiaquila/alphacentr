@@ -305,7 +305,9 @@ test("flow collections are refused so line-oriented reading stays valid", () => 
     "  flow-job: {permissions: write-all, runs-on: ubuntu-latest, steps: [{run: echo hi}]}",
     "    permissions: {contents: write}",
     "    permissions: {contents: read, id-token: write}",
-    "    permissions: {}"
+    "    permissions: {}",
+    /* A flow mapping can also begin a sequence item, right after the dash. */
+    "  seq-job:\n    runs-on: ubuntu-latest\n    steps:\n      - {name: Checkout, uses: actions/checkout@main}"
   ]) {
     withFixture((root) => {
       const path = join(root, ".github/workflows/ci.yml");

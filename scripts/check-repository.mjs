@@ -80,6 +80,7 @@ const UNREADABLE_YAML = [
      hides a token grant that block style would expose. `${{ }}` expressions are
      untouched — their brace follows `$`, not `: `. */
   [/^[ \t]*(?:-[ \t]+)?[^\s:#][^:#\n]*:[ \t]*[{[]/m, "a flow collection"],
+  [/^[ \t]*-[ \t]*[{[]/m, "a flow collection"],
   [/^[ \t]*\?(?:[ \t]|$)/m, "an explicit key"],
   [/^[ \t]*(?:<<|"<<"|'<<')[ \t]*:/m, "a merge key"],
   [/:[ \t]+[&*][A-Za-z_][\w-]*(?=[ \t]|$)/m, "a YAML anchor or alias"],
