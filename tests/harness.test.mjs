@@ -343,6 +343,21 @@ test("block scalars may contain shell that looks like YAML", () => {
   });
 });
 
+test("a comment cannot fake a block-scalar header", () => {
+  /* ` # looks-like-block: |` is a comment, not a mapping value. Treating it as
+     a block header would hide every more-indented line from the guard. */
+  withFixture((root) => {
+    const path = join(root, ".github/workflows/ci.yml");
+    const workflow = readFileSync(path, "utf8")
+      .replace("jobs:", "jobs:\n  # looks-like-block: |")
+      .replace("    runs-on: ubuntu-latest", "    permissions: write-all\n    runs-on: ubuntu-latest");
+    writeFileSync(path, workflow);
+    const result = run(root, "check-repository.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /may not grant write permissions/);
+  });
+});
+
 test("secrets are still found inside a block scalar", () => {
   /* GitHub expands ${{ }} inside a block scalar, so the secrets scan must not
      skip one even though the structural rules do. */

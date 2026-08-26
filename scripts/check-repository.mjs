@@ -106,6 +106,9 @@ function structuralText(text) {
       blockIndent = null;
     }
     kept.push(line);
+    /* A comment is not a mapping value, so ` # note: |` opens no block scalar.
+       Treating one as a header would hide every more-indented line below it. */
+    if (line.trim().startsWith("#")) continue;
     if (/:[ \t]*[|>][+-]?\d*[ \t]*(?:#.*)?$/.test(line)) blockIndent = indent;
   }
   return kept.join("\n");
