@@ -398,7 +398,7 @@ test("a no-op project check cannot replace the site check", () => {
   /* `["true"]` satisfies any shape rule, so the site check is required by
      exact argv whenever the repository actually ships a site package. */
   withFixture((root) => {
-    write(root, "site/package.json", '{"name":"site","private":true}\n');
+    write(root, "site/package.json", `${SITE_PACKAGE}\n`);
     const config = readConfig(root);
     config.projectChecks = [{ name: "placeholder", command: ["true"] }];
     writeConfig(root, config);
@@ -409,15 +409,42 @@ test("a no-op project check cannot replace the site check", () => {
   });
 });
 
+const SITE_PACKAGE = JSON.stringify({
+  name: "site",
+  private: true,
+  scripts: {
+    build: "node scripts/build.mjs",
+    test: 'node --test "tests/*.test.mjs"',
+    check: "npm run build && npm test"
+  }
+}, null, 2);
+
 test("the real site check satisfies the requirement", () => {
   withFixture((root) => {
-    write(root, "site/package.json", '{"name":"site","private":true}\n');
+    write(root, "site/package.json", `${SITE_PACKAGE}\n`);
     const config = readConfig(root);
     config.projectChecks = [{ name: "site", command: ["npm", "--prefix", "site", "run", "check"] }];
     writeConfig(root, config);
     spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
     const result = run(root, "check-repository.mjs");
     assert.equal(result.status, 0, result.stderr);
+  });
+});
+
+test("narrowing a site script behind the required argv is rejected", () => {
+  /* `run check` resolves to a package script, so pinning only the argv would
+     let the script drop the route tests while the invocation stayed identical. */
+  withFixture((root) => {
+    const narrowed = JSON.parse(SITE_PACKAGE);
+    narrowed.scripts.check = "npm run build";
+    write(root, "site/package.json", `${JSON.stringify(narrowed, null, 2)}\n`);
+    const config = readConfig(root);
+    config.projectChecks = [{ name: "site", command: ["npm", "--prefix", "site", "run", "check"] }];
+    writeConfig(root, config);
+    spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
+    const result = run(root, "check-repository.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /script "check" must be: npm run build && npm test/);
   });
 });
 

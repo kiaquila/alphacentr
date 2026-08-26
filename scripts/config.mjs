@@ -47,16 +47,41 @@ function collect(callback) {
    fixtures, which ship no site, can use their own smoke command. */
 const SITE_CHECK = ["npm", "--prefix", "site", "run", "check"];
 
+/* Requiring the invocation is not enough on its own: `run check` resolves to a
+   package script, and that script could be narrowed to skip the route tests
+   while the argv stayed identical. So the scripts it resolves to are pinned
+   too. Changing how the site is built or tested is fine — update these values
+   in the same pull request, the way a payload budget is re-measured. */
+const SITE_SCRIPTS = {
+  build: "node scripts/build.mjs",
+  test: 'node --test "tests/*.test.mjs"',
+  check: "npm run build && npm test"
+};
+
+function siteScriptErrors(root) {
+  const path = join(root, "site/package.json");
+  let scripts;
+  try {
+    scripts = JSON.parse(readFileSync(path, "utf8")).scripts ?? {};
+  } catch (error) {
+    return [`Cannot read site/package.json: ${error.message}`];
+  }
+  return Object.entries(SITE_SCRIPTS)
+    .filter(([name, body]) => scripts[name] !== body)
+    .map(([name, body]) => `site/package.json script "${name}" must be: ${body}`);
+}
+
 function validateProjectChecks(config, root) {
   const errors = [];
   if (!Array.isArray(config.projectChecks) || config.projectChecks.length === 0) {
     return ["projectChecks must contain at least one real build or test command"];
   }
-  if (existsSync(join(root, "site/package.json")) &&
-      !config.projectChecks.some((check) => Array.isArray(check?.command) &&
-        check.command.length === SITE_CHECK.length &&
-        check.command.every((part, index) => part === SITE_CHECK[index]))) {
-    errors.push(`projectChecks must run the site check: ${SITE_CHECK.join(" ")}`);
+  if (existsSync(join(root, "site/package.json"))) {
+    const runsSiteCheck = config.projectChecks.some((check) => Array.isArray(check?.command) &&
+      check.command.length === SITE_CHECK.length &&
+      check.command.every((part, index) => part === SITE_CHECK[index]));
+    if (!runsSiteCheck) errors.push(`projectChecks must run the site check: ${SITE_CHECK.join(" ")}`);
+    errors.push(...siteScriptErrors(root));
   }
   for (const [index, check] of config.projectChecks.entries()) {
     if (!isObject(check) || typeof check.name !== "string" || !check.name.trim()) {
