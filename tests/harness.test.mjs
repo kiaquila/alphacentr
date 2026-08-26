@@ -321,7 +321,9 @@ test("repository policy rejects every secrets access form", () => {
     "      - run: echo ${{ secrets.DEPLOY_TOKEN }}",
     "      - run: echo ${{ secrets['DEPLOY_TOKEN'] }}",
     '      - run: echo ${{ secrets["DEPLOY_TOKEN"] }}',
-    "      - uses: ./local\n        secrets: inherit"
+    "      - uses: ./local\n        secrets: inherit",
+    /* Bare context use names no key at all. */
+    "      - run: echo '${{ toJSON(secrets) }}'"
   ]) {
     withFixture((root) => {
       const path = join(root, ".github/workflows/ci.yml");
@@ -363,6 +365,32 @@ test("container actions must be pinned by digest", () => {
       if (status === 1) assert.match(result.stderr, /Container action is not pinned to a digest/);
     });
   }
+});
+
+test("a quoted uses key is still pin-checked", () => {
+  withFixture((root) => {
+    const path = join(root, ".github/workflows/ci.yml");
+    const workflow = readFileSync(path, "utf8")
+      .replace("      - name: Setup Node", '      - "uses": actions/setup-node@main\n      - name: Setup Node');
+    writeFileSync(path, workflow);
+    const result = run(root, "check-repository.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /not pinned to a full SHA/);
+  });
+});
+
+test("manual dispatch is rejected", () => {
+  /* A dispatched run loads the selected branch's copy of the workflow, so the
+     guard in that copy cannot be trusted to have run at all. */
+  withFixture((root) => {
+    const path = join(root, ".github/workflows/ci.yml");
+    const workflow = readFileSync(path, "utf8")
+      .replace("  schedule:", "  workflow_dispatch:\n  schedule:");
+    writeFileSync(path, workflow);
+    const result = run(root, "check-repository.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Manual dispatch lets a branch supply its own workflow/);
+  });
 });
 
 test("a dangling symlink is still rejected", () => {

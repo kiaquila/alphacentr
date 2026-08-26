@@ -3,6 +3,11 @@ name: Project CI
 # The repository's only workflow. Both jobs are read-only and run no code from
 # outside the checked-out commit, so a proposed branch cannot escalate to a
 # write token, publish a check, or read a secret.
+#
+# There is deliberately no `workflow_dispatch`. A manual run selects a ref and
+# GitHub loads that ref's copy of this file, so a branch could replace the
+# steps before the default branch's guard ever runs. The triggers below are
+# either bound to the default branch or already validate the proposed commit.
 
 on:
   pull_request:
@@ -11,7 +16,6 @@ on:
       - main
   schedule:
     - cron: "0 6 * * 1"
-  workflow_dispatch:
 
 permissions:
   contents: read

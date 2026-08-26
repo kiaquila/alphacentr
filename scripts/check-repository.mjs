@@ -185,6 +185,14 @@ function checkWorkflow(workflow) {
   if (/^\s*workflow_run:/m.test(text)) {
     failures.push(`workflow_run runs privileged against proposed code in ${workflow}`);
   }
+  /* A manual run selects a ref, and GitHub loads that ref's copy of the
+     workflow — so a branch can rewrite the steps before this guard, which runs
+     from that same copy, ever sees them. No `if` condition inside the file can
+     fix that, because the branch owns the condition too. The only reliable
+     answer for a repository that needs no manual runs is not to offer them. */
+  if (/^\s*workflow_dispatch:/m.test(text)) {
+    failures.push(`Manual dispatch lets a branch supply its own workflow in ${workflow}`);
+  }
   const declaresTopLevel = text
     .split("\n")
     .some((line) => !/^[ \t]/.test(line) && PERMISSIONS_KEY.test(line));
@@ -203,15 +211,17 @@ function checkWorkflow(workflow) {
     failures.push(`Workflow may not grant write permissions (${entry}) in ${workflow}`);
   }
   /* A workflow that validates proposed code has no business reading a
-     repository secret. Only `secrets.GITHUB_TOKEN` — the automatic,
-     permission-scoped token this file already constrains to read — is allowed;
-     every other way of naming the context is refused, including the bracket
-     form `secrets['NAME']` and `secrets: inherit` on a reusable workflow. */
-  for (const match of text.matchAll(/\bsecrets[ \t]*[.[:]/g)) {
+     repository secret. Only the exact access `secrets.GITHUB_TOKEN` — the
+     automatic, permission-scoped token this file already constrains to read —
+     is allowed; every other mention of the context is refused, which covers
+     `secrets['NAME']`, `secrets: inherit` on a reusable workflow, and bare
+     uses such as `toJSON(secrets)` that name no key at all. */
+  for (const match of text.matchAll(/\bsecrets\b/g)) {
     if (/^secrets[ \t]*\.[ \t]*GITHUB_TOKEN\b/.test(text.slice(match.index))) continue;
-    failures.push(`Workflow may not consume repository secrets in ${workflow}: ${match[0]}`);
+    const context = text.slice(match.index, match.index + 40).split("\n")[0];
+    failures.push(`Workflow may not consume repository secrets in ${workflow}: ${context}`);
   }
-  for (const match of text.matchAll(/^\s*-?\s*uses:\s*["']?([^\s"']+)["']?\s*(?:#.*)?$/gm)) {
+  for (const match of text.matchAll(/^\s*-?\s*(?:uses|"uses"|'uses')\s*:\s*["']?([^\s"']+)["']?\s*(?:#.*)?$/gm)) {
     const action = match[1];
     if (action.startsWith("./")) continue;
     /* A container tag is mutable, so its publisher can change what CI runs
