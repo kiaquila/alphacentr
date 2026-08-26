@@ -394,6 +394,33 @@ test("configuration paths cannot escape the repository", () => {
   });
 });
 
+test("a no-op project check cannot replace the site check", () => {
+  /* `["true"]` satisfies any shape rule, so the site check is required by
+     exact argv whenever the repository actually ships a site package. */
+  withFixture((root) => {
+    write(root, "site/package.json", '{"name":"site","private":true}\n');
+    const config = readConfig(root);
+    config.projectChecks = [{ name: "placeholder", command: ["true"] }];
+    writeConfig(root, config);
+    spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
+    const result = run(root, "check-repository.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /projectChecks must run the site check/);
+  });
+});
+
+test("the real site check satisfies the requirement", () => {
+  withFixture((root) => {
+    write(root, "site/package.json", '{"name":"site","private":true}\n');
+    const config = readConfig(root);
+    config.projectChecks = [{ name: "site", command: ["npm", "--prefix", "site", "run", "check"] }];
+    writeConfig(root, config);
+    spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
+    const result = run(root, "check-repository.mjs");
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+
 test("a placeholder project check is rejected", () => {
   withFixture((root) => {
     const config = readConfig(root);

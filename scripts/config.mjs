@@ -5,7 +5,7 @@
    ships 828 static pages, so a total over all HTML and images says nothing
    about what a visitor actually downloads. */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
 
 const kebabCase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -39,10 +39,24 @@ function collect(callback) {
   return [];
 }
 
+/* The product check for this repository is the site build and its route tests.
+   Requiring that exact argv is what makes a placeholder impossible to
+   substitute — `["true"]` and friends satisfy any shape rule, and classifying
+   whether an arbitrary command is "real" is the shell-parsing problem the
+   2251-line guard lost. Gated on the site package existing so the harness
+   fixtures, which ship no site, can use their own smoke command. */
+const SITE_CHECK = ["npm", "--prefix", "site", "run", "check"];
+
 function validateProjectChecks(config, root) {
   const errors = [];
   if (!Array.isArray(config.projectChecks) || config.projectChecks.length === 0) {
     return ["projectChecks must contain at least one real build or test command"];
+  }
+  if (existsSync(join(root, "site/package.json")) &&
+      !config.projectChecks.some((check) => Array.isArray(check?.command) &&
+        check.command.length === SITE_CHECK.length &&
+        check.command.every((part, index) => part === SITE_CHECK[index]))) {
+    errors.push(`projectChecks must run the site check: ${SITE_CHECK.join(" ")}`);
   }
   for (const [index, check] of config.projectChecks.entries()) {
     if (!isObject(check) || typeof check.name !== "string" || !check.name.trim()) {
