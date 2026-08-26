@@ -292,13 +292,14 @@ test("media pulled in by a page's own CSS counts against that page", () => {
 
 test("a script's own src is still a fetch", () => {
   /* Only the contents of a raw-text element are dropped; its start tag can
-     name a real fetch. */
+     name a real fetch — and the strip must step over a quoted `>` in that tag,
+     or it would cut the tag short and lose the src after it. */
   withFixture((root) => {
     write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
     write(
       root,
       "site/dist/index.html",
-      '<!doctype html><title>Home</title><script src="/assets/media/wide.webp">ignored</script>\n'
+      '<!doctype html><title>Home</title><script data-label=">" src="/assets/media/wide.webp">ignored</script>\n'
     );
     const result = run(root, "check-performance-budget.mjs");
     assert.equal(result.status, 1);

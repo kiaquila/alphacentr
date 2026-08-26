@@ -153,6 +153,11 @@ function assetPath(raw, baseDirectory) {
   return parts.join("/");
 }
 
+/* The attributes of a start tag, stepping over quoted values so a `>` inside
+   one does not look like the end of the tag. Shared by the tag scan and the
+   raw-text strip, which must agree on where a start tag ends. */
+const ATTRIBUTE_RUN = `(?:"[^"]*"|'[^']*'|[^>"'])*`;
+
 function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, unresolved) {
   let total = 0;
   const seen = new Set();
@@ -188,7 +193,10 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
      such below. */
   const live = html
     .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/(<(script|textarea|title)\b[^>]*>)[\s\S]*?<\/\2\s*>/gi, "$1");
+    .replace(
+      new RegExp(`(<(script|textarea|title)\\b${ATTRIBUTE_RUN}>)[\\s\\S]*?</\\2\\s*>`, "gi"),
+      "$1"
+    );
 
   /* One matcher for every fetch-producing attribute. The name must start an
      attribute — preceded by whitespace, a quote or a slash — so `data-src`,
@@ -221,7 +229,7 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
      appearing in text content — inside a <code> sample, say — is not an
      attribute and fetches nothing. The tag pattern steps over quoted values so
      a `>` inside one (`alt="a > b"`) does not end the tag early. */
-  const START_TAG = /<([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+  const START_TAG = new RegExp(`<([a-zA-Z][\\w-]*)(${ATTRIBUTE_RUN})>`, "g");
   for (const [, name, attributes] of live.matchAll(START_TAG)) {
     scan(attributes, "src|poster|srcset");
     if (name.toLowerCase() === "link") scan(attributes, "href");
