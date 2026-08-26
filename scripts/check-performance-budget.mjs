@@ -178,8 +178,17 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
     total += sizes.get(asset);
   };
   /* Commented-out markup is not fetched. HTML comments do not nest, so
-     removing them is exact. */
-  const live = html.replace(/<!--[\s\S]*?-->/g, " ");
+     removing them is exact.
+
+     The contents of a raw-text element are data, not markup: an `<img src=…>`
+     written inside a JSON-LD `<script>` or a `<textarea>` fetches nothing. The
+     start tags are kept — a `<script src=…>` is a real fetch — and only the
+     contents are dropped. `<style>` is deliberately not in this list, because
+     its contents are CSS the page really does fetch from, and are scanned as
+     such below. */
+  const live = html
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/(<(script|textarea|title)\b[^>]*>)[\s\S]*?<\/\2\s*>/gi, "$1");
 
   /* One matcher for every fetch-producing attribute. The name must start an
      attribute — preceded by whitespace, a quote or a slash — so `data-src`,
