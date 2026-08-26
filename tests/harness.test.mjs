@@ -229,6 +229,17 @@ test("a page that is not the configured representative is still budgeted", () =>
   });
 });
 
+test("a new page-wide stylesheet must be budgeted", () => {
+  /* The extension allow-list would accept it and the HTML budget would see
+     only its <link> tag, so an unlisted shared asset is rejected outright. */
+  withFixture((root) => {
+    write(root, "site/dist/assets/extra.css", ".a{color:red}\n");
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Shared asset is not budgeted: assets\/extra\.css/);
+  });
+});
+
 test("a page no family covers is reported", () => {
   withFixture((root) => {
     write(root, "site/dist/stray.html", "<!doctype html><title>Stray</title>\n");

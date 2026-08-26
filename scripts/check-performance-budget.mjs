@@ -84,6 +84,19 @@ function checkPageFamilies(families, output, files, report) {
   return failures;
 }
 
+/* Every file whose extension a shared asset uses must itself be budgeted.
+   Listing paths alone would let a new page-wide stylesheet or script ship
+   unmeasured: the extension allow-list would accept it and the HTML budget
+   would see only its `<link>` tag. */
+function checkUnbudgetedShared(assets, output, files) {
+  const listed = new Set(assets.flatMap((asset) => asset.files));
+  const extensions = new Set([...listed].map((file) => extname(file).toLowerCase()));
+  return files
+    .map((file) => relative(output, file).split(sep).join("/"))
+    .filter((file) => extensions.has(extname(file).toLowerCase()) && !listed.has(file))
+    .map((file) => `Shared asset is not budgeted: ${file}`);
+}
+
 function checkSharedAssets(assets, output, report) {
   const failures = [];
   for (const asset of assets) {
@@ -146,6 +159,7 @@ export function checkPerformance(root) {
   failures.push(...checkPageFamilies(performance.pageFamilies, output, files, report));
   report.push("Shared assets loaded by every page:");
   failures.push(...checkSharedAssets(performance.sharedAssets, output, report));
+  failures.push(...checkUnbudgetedShared(performance.sharedAssets, output, files));
   report.push("Per-file ceilings:");
   failures.push(...checkPerFileLimits(performance.perFileLimits, files, output, report));
 
