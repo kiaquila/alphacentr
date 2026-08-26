@@ -57,8 +57,11 @@ function write(root, path, contents) {
   writeFileSync(target, contents);
 }
 
+/* Run this repository's script against the fixture through --root, rather than
+   the copy inside it, so `yaml` resolves from the repository's node_modules.
+   The script under test is the same either way; only resolution differs. */
 function run(root, script) {
-  return spawnSync(process.execPath, [join(root, "scripts", script), "--root", root], {
+  return spawnSync(process.execPath, [join(repositoryRoot, "scripts", script), "--root", root], {
     cwd: root,
     encoding: "utf8"
   });
@@ -102,6 +105,37 @@ function withFixture(callback) {
   }
 }
 
+/* Most workflow tests differ only in what they splice into ci.yml, so they
+   share one helper: patch the workflow, run the guard, assert the outcome. */
+function withWorkflow(root, replacements) {
+  const path = join(root, ".github/workflows/ci.yml");
+  let workflow = readFileSync(path, "utf8");
+  for (const [from, to] of replacements) {
+    assert.ok(workflow.includes(from), `fixture workflow has no anchor: ${from}`);
+    workflow = workflow.replace(from, to);
+  }
+  writeFileSync(path, workflow);
+  return run(root, "check-repository.mjs");
+}
+
+function assertWorkflowRejected(replacements, expected, label) {
+  withFixture((root) => {
+    const result = withWorkflow(root, replacements);
+    assert.equal(result.status, 1, `accepted: ${label}\n${result.stdout}`);
+    assert.match(result.stderr, expected);
+  });
+}
+
+function assertWorkflowAccepted(replacements, label) {
+  withFixture((root) => {
+    const result = withWorkflow(root, replacements);
+    assert.equal(result.status, 0, `rejected: ${label}\n${result.stderr}`);
+  });
+}
+
+const JOB = "    runs-on: ubuntu-latest";
+const STEP = "      - name: Setup Node";
+
 test("the harness passes on a well-formed repository", () => {
   withFixture((root) => {
     for (const script of ["check-repository.mjs", "run-project-checks.mjs", "check-performance-budget.mjs"]) {
@@ -111,25 +145,26 @@ test("the harness passes on a well-formed repository", () => {
   });
 });
 
-test("this repository's own guard, config and budget hold", () => {
-  for (const script of ["check-repository.mjs"]) {
-    const result = spawnSync(process.execPath, [join(repositoryRoot, "scripts", script)], {
-      cwd: repositoryRoot,
-      encoding: "utf8"
-    });
-    assert.equal(result.status, 0, `${script}\n${result.stdout}\n${result.stderr}`);
-  }
+test("this repository's own guard holds", () => {
+  const result = spawnSync(process.execPath, [join(repositoryRoot, "scripts", "check-repository.mjs")], {
+    cwd: repositoryRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 });
 
 test("the guard is small enough to review", () => {
   /* AGENTS.md caps a code file at 600 lines. The guard this replaced was
      2251 lines, and every review finding against it was a parsing gap. */
-  for (const script of ["check-repository.mjs", "check-performance-budget.mjs", "config.mjs"]) {
-    const lines = readFileSync(join(repositoryRoot, "scripts", script), "utf8").split("\n").length;
-    assert.ok(lines <= 600, `scripts/${script} is ${lines} lines, over the 600-line cap`);
+  for (const file of [
+    "scripts/check-repository.mjs",
+    "scripts/check-performance-budget.mjs",
+    "scripts/config.mjs",
+    "tests/harness.test.mjs"
+  ]) {
+    const lines = readFileSync(join(repositoryRoot, file), "utf8").split("\n").length;
+    assert.ok(lines <= 600, `${file} is ${lines} lines, over the 600-line cap`);
   }
-  const testLines = readFileSync(join(repositoryRoot, "tests/harness.test.mjs"), "utf8").split("\n").length;
-  assert.ok(testLines <= 600, `tests/harness.test.mjs is ${testLines} lines, over the 600-line cap`);
 });
 
 test("project commands run directly and failures propagate", () => {
@@ -175,8 +210,7 @@ test("many pages within budget do not fail on their total", () => {
     for (let index = 0; index < 400; index += 1) {
       write(root, `site/dist/page-${index}/index.html`, `<!doctype html><title>Page ${index}</title>\n`);
     }
-    const result = run(root, "check-performance-budget.mjs");
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(run(root, "check-performance-budget.mjs").status, 0);
   });
 });
 
@@ -200,307 +234,128 @@ test("a budget below its own recorded measurement is rejected", () => {
   });
 });
 
-test("repository policy rejects unpinned actions", () => {
-  withFixture((root) => {
-    const path = join(root, ".github/workflows/ci.yml");
-    writeFileSync(path, readFileSync(path, "utf8").replace(/actions\/checkout@[a-f0-9]{40}/, "actions/checkout@v4"));
-    const result = run(root, "check-repository.mjs");
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /not pinned to a full SHA/);
-  });
-});
-
-test("repository policy rejects a write-capable workflow", () => {
-  withFixture((root) => {
-    const path = join(root, ".github/workflows/ci.yml");
-    writeFileSync(path, readFileSync(path, "utf8").replace("  contents: read", "  contents: write"));
-    const result = run(root, "check-repository.mjs");
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /may not grant write permissions/);
-  });
-});
-
-test("repository policy rejects job-level permission overrides", () => {
-  /* A job-level `permissions:` overrides the top-level grant, so checking only
-     the column-zero declaration would let a job become write-capable while the
-     file still reads `permissions: contents: read` at the top. */
-  for (const override of [
-    "    permissions: write-all",
-    '    permissions: "write-all"',
-    "    permissions:\n      contents: write",
-    '    permissions:\n      contents: "write"',
-    "    permissions:\n      contents: 'write'",
-    "    permissions:\n      contents: read\n      id-token: write",
-    "    permissions:\n      contents: write # needed for the release",
-    /* Quoted keys parse as the normal key, so they must be read too. */
-    "    'permissions': write-all",
-    '    "permissions": write-all',
-    "    permissions:\n      'contents': write",
-    "    permissions:\n      \"contents\": 'write'",
-    /* Fail closed: a shape the guard cannot read is rejected, not assumed safe. */
-    "    permissions: {contents: write",
-    "    permissions: something-unexpected"
+/* Every spelling below is valid YAML that parses to a write grant. The guard
+   reads the parsed document, so quoting, escapes, flow style, anchors and
+   comments are the parser's problem rather than a rule each. */
+test("a write grant is rejected however it is spelled", () => {
+  for (const [label, replacements] of [
+    ["top-level", [["permissions:\n  contents: read", "permissions:\n  contents: write"]]],
+    ["job-level block", [[JOB, `    permissions:\n      contents: write\n${JOB}`]]],
+    ["write-all", [[JOB, `    permissions: write-all\n${JOB}`]]],
+    ["quoted value", [[JOB, `    permissions:\n      contents: "write"\n${JOB}`]]],
+    ["single-quoted value", [[JOB, `    permissions:\n      'contents': 'write'\n${JOB}`]]],
+    ["quoted key", [[JOB, `    'permissions': write-all\n${JOB}`]]],
+    ["escaped key", [[JOB, `    "permissio\\u006es": write-all\n${JOB}`]]],
+    ["explicit key", [[JOB, `    ? permissions\n    : write-all\n${JOB}`]]],
+    ["anchor", [[JOB, `    permissions: &perms write-all\n${JOB}`]]],
+    ["write after read", [[JOB, `    permissions:\n      contents: read\n      id-token: write\n${JOB}`]]],
+    ["trailing comment", [[JOB, `    permissions:\n      contents: write # needed\n${JOB}`]]],
+    ["flow mapping", [[JOB, `    permissions: {contents: write}\n${JOB}`]]],
+    ["whole job in flow style", [["jobs:", "jobs:\n  flow-job: {permissions: write-all, runs-on: ubuntu-latest, steps: [{run: echo hi}]}"]]],
+    ["flow job on a continuation line", [["jobs:", "jobs:\n  cont-job:\n    {permissions: write-all, runs-on: ubuntu-latest, steps: [{run: echo hi}]}"]]],
+    ["comment that looks like a block scalar", [
+      ["  project-ci:", "  project-ci: # looks-like-block: |"],
+      [JOB, `    permissions: write-all\n${JOB}`]
+    ]]
   ]) {
-    withFixture((root) => {
-      const path = join(root, ".github/workflows/ci.yml");
-      const workflow = readFileSync(path, "utf8")
-        .replace("    runs-on: ubuntu-latest", `${override}\n    runs-on: ubuntu-latest`);
-      writeFileSync(path, workflow);
-      const result = run(root, "check-repository.mjs");
-      assert.equal(result.status, 1, `accepted job override: ${override}`);
-      assert.match(result.stderr, /may not grant write permissions/);
-    });
+    assertWorkflowRejected(replacements, /may not grant write permissions/, label);
   }
 });
 
 test("read-only permission declarations still pass", () => {
-  for (const override of [
-    "    permissions:\n      contents: read",
-    '    permissions:\n      contents: "read"',
-    "    permissions:\n      'contents': 'read'",
-    "    permissions:\n      contents: read # only reads the checkout",
-    "    permissions:\n      contents: read\n      id-token: none",
-    "    permissions: read-all",
-    '    "permissions": read-all'
+  for (const [label, replacements] of [
+    ["block read", [[JOB, `    permissions:\n      contents: read\n${JOB}`]]],
+    ["quoted read", [[JOB, `    permissions:\n      contents: "read"\n${JOB}`]]],
+    ["read and none", [[JOB, `    permissions:\n      contents: read\n      id-token: none\n${JOB}`]]],
+    ["read with comment", [[JOB, `    permissions:\n      contents: read # only the checkout\n${JOB}`]]],
+    ["read-all", [[JOB, `    permissions: read-all\n${JOB}`]]],
+    ["empty mapping grants nothing", [[JOB, `    permissions: {}\n${JOB}`]]]
   ]) {
-    withFixture((root) => {
-      const path = join(root, ".github/workflows/ci.yml");
-      const workflow = readFileSync(path, "utf8")
-        .replace("    runs-on: ubuntu-latest", `${override}\n    runs-on: ubuntu-latest`);
-      writeFileSync(path, workflow);
-      const result = run(root, "check-repository.mjs");
-      assert.equal(result.status, 0, `rejected read-only override: ${override}\n${result.stderr}`);
-    });
+    assertWorkflowAccepted(replacements, label);
   }
 });
 
-test("repository policy rejects YAML the guard does not decode", () => {
-  /* The guard reads raw text, so key syntax whose text and decoded value can
-     differ is refused rather than read approximately. `\\u006e` decodes to `n`,
-     which would otherwise spell `permissions` past a text-only match. */
-  for (const [override, expected] of [
-    ['    "permissio\\u006es": write-all', /escaped double-quoted scalar/],
-    ["    ? permissions\\n    : write-all", /explicit key/],
-    ["    <<: *defaults", /merge key|anchor or alias/],
-    ["    permissions: &perms write-all", /anchor or alias/],
-    /* The same escape decoding hides a secrets expression in a value. */
-    ['    env:\\n      TOKEN: "${{ \\x73ecrets.DEPLOY_TOKEN }}"', /escaped double-quoted scalar/]
+test("every secrets access form is rejected", () => {
+  for (const [label, replacements] of [
+    ["dotted", [[STEP, `      - run: echo \${{ secrets.DEPLOY_TOKEN }}\n${STEP}`]]],
+    ["bracketed", [[STEP, `      - run: echo \${{ secrets['DEPLOY_TOKEN'] }}\n${STEP}`]]],
+    ["bare context", [[STEP, `      - run: echo '\${{ toJSON(secrets) }}'\n${STEP}`]]],
+    ["inherit", [[STEP, `      - uses: ./local\n        secrets: inherit\n${STEP}`]]],
+    /* A double-quoted YAML scalar decodes escapes, so the value GitHub
+       expands is `secrets.DEPLOY_TOKEN` even though the text is not. */
+    ["escaped in a quoted scalar", [[STEP, `      - run: echo $TOKEN\n        env:\n          TOKEN: "\${{ \\x73ecrets.DEPLOY_TOKEN }}"\n${STEP}`]]],
+    /* GitHub expands ${{ }} inside a block scalar, so a run body is in scope. */
+    ["inside a block scalar", [[STEP, `      - name: Leak\n        run: |\n          echo \${{ secrets.DEPLOY_TOKEN }}\n${STEP}`]]]
   ]) {
-    withFixture((root) => {
-      const path = join(root, ".github/workflows/ci.yml");
-      const workflow = readFileSync(path, "utf8")
-        .replace("    runs-on: ubuntu-latest", `${override.replaceAll("\\n", "\n")}\n    runs-on: ubuntu-latest`);
-      writeFileSync(path, workflow);
-      const result = run(root, "check-repository.mjs");
-      assert.equal(result.status, 1, `accepted undecodable YAML: ${override}`);
-      assert.match(result.stderr, expected);
-    });
-  }
-});
-
-test("flow collections are refused so line-oriented reading stays valid", () => {
-  /* A whole job written as a flow mapping keeps its permissions off the start
-     of any line, which is where the guard reads them. */
-  for (const override of [
-    "  flow-job: {permissions: write-all, runs-on: ubuntu-latest, steps: [{run: echo hi}]}",
-    "    permissions: {contents: write}",
-    "    permissions: {contents: read, id-token: write}",
-    "    permissions: {}",
-    /* A flow mapping can also begin a sequence item, right after the dash. */
-    "  seq-job:\n    runs-on: ubuntu-latest\n    steps:\n      - {name: Checkout, uses: actions/checkout@main}",
-    /* A flow collection on its own continuation line is still the job value. */
-    "  cont-job:\n    {permissions: write-all, runs-on: ubuntu-latest, steps: [{run: echo hi}]}"
-  ]) {
-    withFixture((root) => {
-      const path = join(root, ".github/workflows/ci.yml");
-      const workflow = readFileSync(path, "utf8")
-        .replace("jobs:", `jobs:\n${override}`);
-      writeFileSync(path, workflow);
-      const result = run(root, "check-repository.mjs");
-      assert.equal(result.status, 1, `accepted flow collection: ${override}`);
-      assert.match(result.stderr, /flow collection/);
-    });
-  }
-});
-
-test("block scalars may contain shell that looks like YAML", () => {
-  /* A `run:` body is literal text, so braces, brackets and backslashes in a
-     shell script must not be mistaken for flow collections or escapes. */
-  withFixture((root) => {
-    const path = join(root, ".github/workflows/ci.yml");
-    const script = [
-      "      - name: Shell that looks structural",
-      "        run: |",
-      "          [ -f package.json ] && echo present",
-      "          {name: not-yaml}",
-      '          echo "a\\tb"',
-      "          for f in *.{js,mjs}; do echo \"$f\"; done"
-    ].join("\n");
-    const workflow = readFileSync(path, "utf8").replace("      - name: Setup Node", `${script}\n      - name: Setup Node`);
-    writeFileSync(path, workflow);
-    const result = run(root, "check-repository.mjs");
-    assert.equal(result.status, 0, result.stderr);
-  });
-});
-
-test("a comment cannot fake a block-scalar header", () => {
-  /* A comment is not a mapping value, whether it is the whole line or trails
-     one. Reading either as a block header would hide the job body below it. */
-  for (const fake of [
-    ["jobs:", "jobs:\n  # looks-like-block: |"],
-    ["  project-ci:", "  project-ci: # looks-like-block: |"],
-    ["  project-ci:", '  project-ci: # a "quoted # hash" and: |'],
-    /* An apostrophe inside a plain scalar is not a quote delimiter. */
-    ["      - name: Checkout", "      - name: Alpha's checkout # looks-like-block: |"]
-  ]) {
-    withFixture((root) => {
-      const path = join(root, ".github/workflows/ci.yml");
-      const workflow = readFileSync(path, "utf8")
-        .replace(fake[0], fake[1])
-        .replace("    runs-on: ubuntu-latest", "    permissions: write-all\n    runs-on: ubuntu-latest");
-      writeFileSync(path, workflow);
-      const result = run(root, "check-repository.mjs");
-      assert.equal(result.status, 1, `accepted fake header: ${fake[1]}`);
-      assert.match(result.stderr, /may not grant write permissions/);
-    });
-  }
-});
-
-test("a real block scalar with a trailing comment still hides its body", () => {
-  /* The converse: `run: | # note` is a genuine header, so the shell below it
-     must not be read as YAML structure. */
-  withFixture((root) => {
-    const path = join(root, ".github/workflows/ci.yml");
-    const script = "      - name: Shell\n        run: | # inline note\n          [ -f package.json ] && echo ok";
-    const workflow = readFileSync(path, "utf8")
-      .replace("      - name: Setup Node", `${script}\n      - name: Setup Node`);
-    writeFileSync(path, workflow);
-    const result = run(root, "check-repository.mjs");
-    assert.equal(result.status, 0, result.stderr);
-  });
-});
-
-test("secrets are still found inside a block scalar", () => {
-  /* GitHub expands ${{ }} inside a block scalar, so the secrets scan must not
-     skip one even though the structural rules do. */
-  withFixture((root) => {
-    const path = join(root, ".github/workflows/ci.yml");
-    const script = "      - name: Leak\n        run: |\n          echo ${{ secrets.DEPLOY_TOKEN }}";
-    const workflow = readFileSync(path, "utf8").replace("      - name: Setup Node", `${script}\n      - name: Setup Node`);
-    writeFileSync(path, workflow);
-    const result = run(root, "check-repository.mjs");
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /may not consume repository secrets/);
-  });
-});
-
-test("quoted trigger keys are still detected", () => {
-  for (const [trigger, expected] of [
-    ['  "workflow_dispatch":', /Manual dispatch/],
-    ["  'workflow_dispatch':", /Manual dispatch/],
-    ['  "workflow_run":', /workflow_run/],
-    ['  "pull_request_target":', /pull_request_target/]
-  ]) {
-    withFixture((root) => {
-      const path = join(root, ".github/workflows/ci.yml");
-      const workflow = readFileSync(path, "utf8").replace("  schedule:", `${trigger}\n  schedule:`);
-      writeFileSync(path, workflow);
-      const result = run(root, "check-repository.mjs");
-      assert.equal(result.status, 1, `accepted trigger: ${trigger}`);
-      assert.match(result.stderr, expected);
-    });
-  }
-});
-
-test("repository policy rejects secrets and unsafe triggers", () => {
-  withFixture((root) => {
-    const path = join(root, ".github/workflows/ci.yml");
-    const workflow = readFileSync(path, "utf8")
-      .replace("on:\n  pull_request:", "on:\n  pull_request_target:")
-      .replace("      - name: Setup Node", "      - run: echo ${{ secrets.DEPLOY_TOKEN }}\n      - name: Setup Node");
-    writeFileSync(path, workflow);
-    const result = run(root, "check-repository.mjs");
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /pull_request_target/);
-    assert.match(result.stderr, /may not consume repository secrets/);
-  });
-});
-
-test("repository policy rejects every secrets access form", () => {
-  for (const step of [
-    "      - run: echo ${{ secrets.DEPLOY_TOKEN }}",
-    "      - run: echo ${{ secrets['DEPLOY_TOKEN'] }}",
-    '      - run: echo ${{ secrets["DEPLOY_TOKEN"] }}',
-    "      - uses: ./local\n        secrets: inherit",
-    /* Bare context use names no key at all. */
-    "      - run: echo '${{ toJSON(secrets) }}'"
-  ]) {
-    withFixture((root) => {
-      const path = join(root, ".github/workflows/ci.yml");
-      const workflow = readFileSync(path, "utf8")
-        .replace("      - name: Setup Node", `${step}\n      - name: Setup Node`);
-      writeFileSync(path, workflow);
-      const result = run(root, "check-repository.mjs");
-      assert.equal(result.status, 1, `accepted secret access: ${step}`);
-      assert.match(result.stderr, /may not consume repository secrets/);
-    });
+    assertWorkflowRejected(replacements, /may not consume repository secrets/, label);
   }
 });
 
 test("the automatic GITHUB_TOKEN stays usable", () => {
-  withFixture((root) => {
-    const path = join(root, ".github/workflows/ci.yml");
-    const workflow = readFileSync(path, "utf8")
-      .replace("      - name: Setup Node", "      - run: gh repo view\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n      - name: Setup Node");
-    writeFileSync(path, workflow);
-    const result = run(root, "check-repository.mjs");
-    assert.equal(result.status, 0, result.stderr);
-  });
+  assertWorkflowAccepted(
+    [[STEP, `      - run: gh repo view\n        env:\n          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}\n${STEP}`]],
+    "secrets.GITHUB_TOKEN"
+  );
 });
 
-test("container actions must be pinned by digest", () => {
-  const digest = `@sha256:${"a".repeat(64)}`;
-  for (const [action, status] of [
-    ["docker://alpine:latest", 1],
-    ["docker://alpine", 1],
-    [`docker://alpine${digest}`, 0]
+test("actions must be pinned, containers by digest", () => {
+  for (const [action, label] of [
+    ["actions/setup-node@main", "branch ref"],
+    ["docker://alpine:latest", "mutable container tag"],
+    ["docker://alpine", "container without a tag"]
   ]) {
-    withFixture((root) => {
-      const path = join(root, ".github/workflows/ci.yml");
-      const workflow = readFileSync(path, "utf8")
-        .replace("      - name: Setup Node", `      - uses: ${action}\n      - name: Setup Node`);
-      writeFileSync(path, workflow);
-      const result = run(root, "check-repository.mjs");
-      assert.equal(result.status, status, `${action}\n${result.stderr}`);
-      if (status === 1) assert.match(result.stderr, /Container action is not pinned to a digest/);
-    });
+    assertWorkflowRejected(
+      [[STEP, `      - uses: ${action}\n${STEP}`]],
+      /not pinned to a (?:full SHA|digest)/,
+      label
+    );
+  }
+  /* A quoted key is the same key once parsed, so it is pin-checked too. */
+  assertWorkflowRejected(
+    [[STEP, `      - "uses": actions/setup-node@main\n${STEP}`]],
+    /not pinned to a full SHA/,
+    "quoted uses key"
+  );
+  assertWorkflowAccepted(
+    [[STEP, `      - uses: docker://alpine@sha256:${"a".repeat(64)}\n${STEP}`]],
+    "digest-pinned container"
+  );
+});
+
+test("triggers that let a branch supply the workflow are rejected", () => {
+  for (const [trigger, label] of [
+    ["  workflow_dispatch:", "manual dispatch"],
+    ['  "workflow_dispatch":', "quoted manual dispatch"],
+    ["  workflow_run:\n    workflows: [CI]\n    types: [completed]", "workflow_run"],
+    ["  pull_request_target:", "pull_request_target"]
+  ]) {
+    assertWorkflowRejected([["  schedule:", `${trigger}\n  schedule:`]], /lets a branch supply its own workflow/, label);
   }
 });
 
-test("a quoted uses key is still pin-checked", () => {
-  withFixture((root) => {
-    const path = join(root, ".github/workflows/ci.yml");
-    const workflow = readFileSync(path, "utf8")
-      .replace("      - name: Setup Node", '      - "uses": actions/setup-node@main\n      - name: Setup Node');
-    writeFileSync(path, workflow);
-    const result = run(root, "check-repository.mjs");
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /not pinned to a full SHA/);
-  });
+test("a run script may contain shell that looks like YAML", () => {
+  /* A block scalar is a string, not structure: braces, brackets, quotes and
+     backslashes in a shell script must not be read as YAML. */
+  const script = [
+    "      - name: Shell that looks structural",
+    "        run: |",
+    "          [ -f package.json ] && echo present",
+    "          {name: not-yaml}",
+    '          echo "a\\tb"',
+    '          for f in *.{js,mjs}; do echo "$f"; done'
+  ].join("\n");
+  assertWorkflowAccepted([[STEP, `${script}\n${STEP}`]], "shell in a block scalar");
 });
 
-test("manual dispatch is rejected", () => {
-  /* A dispatched run loads the selected branch's copy of the workflow, so the
-     guard in that copy cannot be trusted to have run at all. */
-  withFixture((root) => {
-    const path = join(root, ".github/workflows/ci.yml");
-    const workflow = readFileSync(path, "utf8")
-      .replace("  schedule:", "  workflow_dispatch:\n  schedule:");
-    writeFileSync(path, workflow);
-    const result = run(root, "check-repository.mjs");
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /Manual dispatch lets a branch supply its own workflow/);
-  });
+test("an apostrophe in a step name is not a quote delimiter", () => {
+  assertWorkflowAccepted(
+    [[STEP, `      - name: Alpha's checkout # a note\n        run: echo ok\n${STEP}`]],
+    "plain scalar with an apostrophe"
+  );
+});
+
+test("a workflow that is not valid YAML is rejected", () => {
+  assertWorkflowRejected([["permissions:", "permissions: [unclosed"]], /not valid YAML/, "malformed document");
 });
 
 test("a dangling symlink is still rejected", () => {

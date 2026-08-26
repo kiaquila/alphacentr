@@ -2,17 +2,27 @@
 /* Repository safety guard. Adapted from the kiaquila/web-design template at
    ea8501fdb90236fcb891e97b15f7a42a62f76ff1.
 
-   It checks the things a static-site repository can get wrong by accident:
-   tracked build output or dependencies, committed secrets and personal paths,
-   symlinks, and workflows that grant more than they need. It deliberately does
-   not try to reason about shell text inside workflow steps — the previous
-   2251-line attempt did, and every review finding against it was a gap in that
-   parsing. This repository has one workflow, no write-capable job, and no
-   actor-controlled input, so the property is enforced structurally below. */
+   It checks the things a static-site repository can get wrong: tracked build
+   output or dependencies, committed secrets and personal paths, symlinks, and
+   workflows that grant more than they need.
+
+   Two deliberate choices, both learned from the 2251-line guard this replaced
+   and from the review of its replacement:
+
+   - It does not reason about shell text inside workflow steps. Every review
+     finding against the old guard was a gap in that parsing. A job that cannot
+     obtain a write token and cannot read a secret has nothing to escalate to,
+     so those are the properties worth checking.
+   - It reads workflows through a YAML parser rather than as text. Reading text
+     meant re-deriving YAML one spelling at a time — quoted keys, escaped
+     scalars, flow collections, anchors, merge keys, comments that look like
+     block scalars — and every spelling missed was a silent bypass. The parser
+     decides what the document says; this file only decides what is allowed. */
 
 import { basename, join, resolve, sep } from "node:path";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { parse } from "yaml";
 import { loadConfig } from "./config.mjs";
 
 const rootIndex = process.argv.indexOf("--root");
@@ -48,150 +58,11 @@ const SECRETS = [
 ];
 const PERSONAL_PATHS = [/\/Users\/[A-Za-z0-9._-]+\//, /\/home\/[A-Za-z0-9._-]+\//, /[A-Za-z]:\\Users\\/];
 
-/* A YAML key may be written plain or quoted, and all three spell the same key.
-   Escaped spellings are refused outright by UNREADABLE_YAML below, so matching
-   these three is exhaustive for the keys this guard cares about. */
-function keyPattern(name) {
-  return new RegExp(`^[ \\t]*(?:${name}|"${name}"|'${name}')[ \\t]*:`, "m");
-}
-
-const PERMISSIONS_KEY = /^([ \t]*)(?:permissions|"permissions"|'permissions')[ \t]*:[ \t]*(.*)$/;
+/* Validation runs on proposed code. A write token would let a branch mint its
+   own approval or publish from an unreviewed commit, and a manual or
+   workflow_run trigger would let it supply the workflow itself. */
 const READ_VALUES = new Set(["read", "none"]);
-
-/* This guard reads raw workflow text rather than a parsed YAML document, which
-   is only sound while a scalar's text and its decoded value agree. The
-   double-quoted style is the one YAML style that decodes escapes, so
-   "permissio\u006es" parses as the key `permissions` and
-   "${{ \x73ecrets.X }}" parses as a secrets expression — in both cases the
-   raw text hides what GitHub actually sees. Every double-quoted scalar
-   containing a backslash is therefore refused, key or value alike.
-
-   The remaining indirections are refused for the same reason: an explicit
-   `? key`, and anchors, aliases and merge keys, which move a mapping's content
-   somewhere the line-by-line reading never looks. Plain and single-quoted
-   scalars read identically parsed and unparsed — single quotes have no escape
-   but '' — so those stay. Nothing in a GitHub workflow needs the refused
-   forms, and refusing them is what keeps this text reading equivalent to the
-   parsed one rather than merely close to it. */
-const UNREADABLE_YAML = [
-  [/"[^"\n]*\\[^"\n]*"/, "an escaped double-quoted scalar"],
-  /* A flow collection puts structure on one line, which is precisely where a
-     line-oriented reader stops seeing it: `job: {permissions: write-all, ...}`
-     hides a token grant that block style would expose. Rather than enumerate
-     the positions a collection may open in — after `key:`, after `-`, or on
-     its own continuation line — this refuses any of them: a `{` or `[` that
-     opens a node. `${{ }}` expressions are untouched, because their brace
-     follows `$`; block-scalar bodies are exempt, because a shell script may
-     legitimately start a line with `[`. */
-  [/^[ \t]*(?:-[ \t]+)?(?:[^\s:#][^:#\n]*:[ \t]*)?[{[]/m, "a flow collection"],
-  [/:[ \t]*[{[]/m, "a flow collection"],
-  [/^[ \t]*\?(?:[ \t]|$)/m, "an explicit key"],
-  [/^[ \t]*(?:<<|"<<"|'<<')[ \t]*:/m, "a merge key"],
-  [/:[ \t]+[&*][A-Za-z_][\w-]*(?=[ \t]|$)/m, "a YAML anchor or alias"],
-  [/^[ \t]*-[ \t]+[&*][A-Za-z_][\w-]*(?=[ \t]|$)/m, "a YAML anchor or alias"]
-];
-
-/* YAML starts a comment at a `#` that begins the line or follows whitespace,
-   unless it sits inside a quoted scalar. Cutting one off naively would let
-   `project-ci: # note: |` read as a block-scalar header.
-
-   A quote only opens a scalar where a scalar can begin — at the start of the
-   line or after whitespace or a flow punctuation character. Elsewhere it is an
-   ordinary character in a plain scalar, as in `name: Alpha's action`, and
-   treating it as a delimiter would swallow the rest of the line. */
-function stripComment(line) {
-  let quote = null;
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
-    if (quote) {
-      if (character === "\\" && quote === '"') index += 1;
-      else if (character === quote) quote = null;
-      continue;
-    }
-    const previous = index === 0 ? "" : line[index - 1];
-    if ((character === '"' || character === "'") && (index === 0 || /[\s:,[{-]/.test(previous))) {
-      quote = character;
-    } else if (character === "#" && (index === 0 || /\s/.test(previous))) {
-      return line.slice(0, index);
-    }
-  }
-  return line;
-}
-
-/* Lines inside a block scalar (`|` or `>`) are literal text, not YAML
-   structure: a `run:` script may legitimately start a line with `[`, contain
-   braces, or use a backslash. The structural rules therefore read the document
-   with those bodies removed. Secret scanning deliberately does not use this —
-   GitHub still expands `${{ }}` inside a block scalar. */
-function structuralText(text) {
-  const kept = [];
-  let blockIndent = null;
-  for (const line of text.split("\n")) {
-    const indent = line.match(/^[ \t]*/)[0].length;
-    if (blockIndent !== null) {
-      if (!line.trim() || indent > blockIndent) continue;
-      blockIndent = null;
-    }
-    kept.push(line);
-    /* Detect the header on the line's real content: a comment is not a mapping
-       value, whether it is the whole line or trails one, and treating it as a
-       header would hide every more-indented line below it. */
-    if (/:[ \t]*[|>][+-]?\d*[ \t]*$/.test(stripComment(line))) blockIndent = indent;
-  }
-  return kept.join("\n");
-}
-
-function unquote(value) {
-  const trimmed = value.trim();
-  const quoted = trimmed.match(/^(["'])([\s\S]*)\1$/);
-  return quoted ? quoted[2].trim() : trimmed;
-}
-
-/* Every `permissions:` declaration must be provably read-only, and anything
-   this cannot read is rejected rather than assumed safe.
-
-   That direction matters. Hunting for write grants needs a new pattern for
-   every way YAML can spell one — bare, quoted value, quoted key, flow mapping,
-   trailing comment — and each missed spelling silently grants a token. Asking
-   instead whether every entry is `read` or `none` has one answer, and an
-   unfamiliar shape fails the build instead of passing it. */
-function permissionFailures(text) {
-  const lines = text.split("\n");
-  const failures = [];
-
-  const checkEntry = (entry) => {
-    const separator = entry.indexOf(":");
-    const value = separator === -1 ? "" : unquote(entry.slice(separator + 1));
-    if (separator === -1 || !READ_VALUES.has(value)) failures.push(entry.trim());
-  };
-
-  for (const [index, line] of lines.entries()) {
-    const declaration = line.match(PERMISSIONS_KEY);
-    if (!declaration) continue;
-    const [, indent, rest] = declaration;
-    const inline = stripComment(rest).trim();
-
-    if (inline) {
-      const value = unquote(inline);
-      if (!value.startsWith("{")) {
-        if (value !== "read-all") failures.push(inline);
-      } else if (!value.endsWith("}")) {
-        failures.push(inline);
-      } else {
-        const inner = value.slice(1, -1).trim();
-        if (inner) inner.split(",").forEach(checkEntry);
-      }
-      continue;
-    }
-
-    for (const nested of lines.slice(index + 1)) {
-      if (!stripComment(nested).trim()) continue;
-      if (nested.match(/^[ \t]*/)[0].length <= indent.length) break;
-      checkEntry(stripComment(nested));
-    }
-  }
-  return failures;
-}
+const FORBIDDEN_TRIGGERS = new Set(["pull_request_target", "workflow_run", "workflow_dispatch"]);
 
 function listTrackedFiles() {
   const listed = spawnSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
@@ -239,70 +110,104 @@ function checkFileContents(file) {
   }
 }
 
-/* The guard reads permissions and action refs, both of which are plain YAML
-   scalars. It does not interpret `run:` bodies: a job that cannot obtain a
-   write token and cannot be handed an actor-controlled value has nothing to
-   escalate to, so the token grant is the property worth checking. */
-function checkWorkflow(workflow) {
-  const text = readFileSync(join(root, workflow), "utf8");
-  const structural = structuralText(text);
+/* Every mapping entry anywhere in the parsed document. Keys arrive decoded, so
+   every way YAML can spell one collapses to a single case here. */
+function* entries(node) {
+  if (Array.isArray(node)) {
+    for (const item of node) yield* entries(item);
+  } else if (node && typeof node === "object") {
+    for (const [key, value] of Object.entries(node)) {
+      yield { key, value };
+      yield* entries(value);
+    }
+  }
+}
 
-  if (/\bpull_request_target\b/.test(text)) {
-    failures.push(`High-risk pull_request_target trigger in ${workflow}`);
+function* strings(node) {
+  if (typeof node === "string") yield node;
+  else if (Array.isArray(node)) for (const item of node) yield* strings(item);
+  else if (node && typeof node === "object") for (const value of Object.values(node)) yield* strings(value);
+}
+
+/* Accept only what is provably read-only, so an unrecognised grant fails
+   rather than passes. An empty mapping grants nothing and is fine; `write-all`,
+   any write scope, and anything unreadable are not. */
+function permissionFailures(value) {
+  if (value === "read-all") return [];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [String(value)];
+  return Object.entries(value)
+    .filter(([, granted]) => !READ_VALUES.has(granted))
+    .map(([scope, granted]) => `${scope}: ${granted}`);
+}
+
+function triggerNames(on) {
+  if (typeof on === "string") return [on];
+  if (Array.isArray(on)) return on.filter((item) => typeof item === "string");
+  if (on && typeof on === "object") return Object.keys(on);
+  return [];
+}
+
+function checkActionPin(action, workflow) {
+  if (typeof action !== "string" || action.startsWith("./")) return;
+  /* A container tag is mutable, so its publisher can change what CI runs
+     without any commit here. Only a digest names fixed bytes. */
+  if (action.startsWith("docker://")) {
+    if (!/@sha256:[a-f0-9]{64}$/.test(action)) {
+      failures.push(`Container action is not pinned to a digest in ${workflow}: ${action}`);
+    }
+    return;
   }
-  if (keyPattern("workflow_run").test(structural)) {
-    failures.push(`workflow_run runs privileged against proposed code in ${workflow}`);
+  const ref = action.slice(action.lastIndexOf("@") + 1);
+  if (!/^[a-f0-9]{40}$/.test(ref)) {
+    failures.push(`Action is not pinned to a full SHA in ${workflow}: ${action}`);
   }
-  /* A manual run selects a ref, and GitHub loads that ref's copy of the
-     workflow — so a branch can rewrite the steps before this guard, which runs
-     from that same copy, ever sees them. No `if` condition inside the file can
-     fix that, because the branch owns the condition too. The only reliable
-     answer for a repository that needs no manual runs is not to offer them. */
-  if (keyPattern("workflow_dispatch").test(structural)) {
-    failures.push(`Manual dispatch lets a branch supply its own workflow in ${workflow}`);
+}
+
+function checkWorkflow(workflow) {
+  let document;
+  try {
+    document = parse(readFileSync(join(root, workflow), "utf8"));
+  } catch (error) {
+    failures.push(`Workflow is not valid YAML: ${workflow}: ${error.message}`);
+    return;
   }
-  const declaresTopLevel = structural
-    .split("\n")
-    .some((line) => !/^[ \t]/.test(line) && PERMISSIONS_KEY.test(line));
-  if (!declaresTopLevel) {
+  if (!document || typeof document !== "object" || Array.isArray(document)) {
+    failures.push(`Workflow must be a mapping: ${workflow}`);
+    return;
+  }
+
+  for (const trigger of triggerNames(document.on)) {
+    if (FORBIDDEN_TRIGGERS.has(trigger)) {
+      failures.push(`Trigger ${trigger} lets a branch supply its own workflow in ${workflow}`);
+    }
+  }
+  if (document.permissions === undefined) {
     failures.push(`Workflow must declare top-level permissions: ${workflow}`);
   }
-  for (const [pattern, description] of UNREADABLE_YAML) {
-    if (pattern.test(structural)) {
-      failures.push(`Workflow uses ${description}, which this guard does not decode: ${workflow}`);
-    }
-  }
-  /* Validation runs on proposed code, so a write token anywhere in the file —
-     top-level or on any job, which overrides it — would let a branch mint its
-     own approval or publish from an unreviewed commit. */
-  for (const entry of permissionFailures(structural)) {
-    failures.push(`Workflow may not grant write permissions (${entry}) in ${workflow}`);
-  }
-  /* A workflow that validates proposed code has no business reading a
-     repository secret. Only the exact access `secrets.GITHUB_TOKEN` — the
-     automatic, permission-scoped token this file already constrains to read —
-     is allowed; every other mention of the context is refused, which covers
-     `secrets['NAME']`, `secrets: inherit` on a reusable workflow, and bare
-     uses such as `toJSON(secrets)` that name no key at all. */
-  for (const match of text.matchAll(/\bsecrets\b/g)) {
-    if (/^secrets[ \t]*\.[ \t]*GITHUB_TOKEN\b/.test(text.slice(match.index))) continue;
-    const context = text.slice(match.index, match.index + 40).split("\n")[0];
-    failures.push(`Workflow may not consume repository secrets in ${workflow}: ${context}`);
-  }
-  for (const match of structural.matchAll(/^\s*-?\s*(?:uses|"uses"|'uses')\s*:\s*["']?([^\s"']+)["']?\s*(?:#.*)?$/gm)) {
-    const action = match[1];
-    if (action.startsWith("./")) continue;
-    /* A container tag is mutable, so its publisher can change what CI runs
-       without any commit here. Only a digest names fixed bytes. */
-    if (action.startsWith("docker://")) {
-      if (!/@sha256:[a-f0-9]{64}$/.test(action)) {
-        failures.push(`Container action is not pinned to a digest in ${workflow}: ${action}`);
+
+  for (const { key, value } of entries(document)) {
+    /* A job-level declaration overrides the top-level one, so every
+       `permissions` in the document is held to the same rule. */
+    if (key === "permissions") {
+      for (const entry of permissionFailures(value)) {
+        failures.push(`Workflow may not grant write permissions (${entry}) in ${workflow}`);
       }
-      continue;
     }
-    const ref = action.slice(action.lastIndexOf("@") + 1);
-    if (!/^[a-f0-9]{40}$/.test(ref)) {
-      failures.push(`Action is not pinned to a full SHA in ${workflow}: ${action}`);
+    /* `secrets: inherit` on a reusable workflow passes credentials on without
+       ever naming one. */
+    if (key === "secrets") {
+      failures.push(`Workflow may not consume repository secrets in ${workflow}: secrets: ${value}`);
+    }
+    if (key === "uses") checkActionPin(value, workflow);
+  }
+
+  /* Only the automatic, permission-scoped token is allowed. Every other use of
+     the context is refused, including `secrets['NAME']` and bare uses such as
+     `toJSON(secrets)` that name no key at all. Escapes are already decoded. */
+  for (const value of strings(document)) {
+    for (const match of value.matchAll(/\bsecrets\b/g)) {
+      if (/^secrets[ \t]*\.[ \t]*GITHUB_TOKEN\b/.test(value.slice(match.index))) continue;
+      failures.push(`Workflow may not consume repository secrets in ${workflow}: ${value.trim().slice(0, 60)}`);
     }
   }
 }

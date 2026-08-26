@@ -33,8 +33,10 @@ jobs:
         with:
           node-version: "22.18.0"
 
-      - name: Install locked site dependencies
-        run: npm ci --ignore-scripts --prefix site
+      - name: Install locked dependencies
+        run: |
+          npm ci --ignore-scripts
+          npm ci --ignore-scripts --prefix site
 
       - name: Repository guard, harness tests, site check, payload budget
         run: npm run preflight

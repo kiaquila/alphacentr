@@ -12,11 +12,12 @@
 
 ## What the repository guard enforces
 
-`scripts/check-repository.mjs` reads workflow files as text rather than parsing
-YAML, which is sound only while the text and the parsed document agree. It
-therefore refuses the constructs where they can diverge — escaped double-quoted
-scalars, flow collections, explicit `? key`, anchors, aliases, and merge keys —
-and asks its questions of what remains:
+`scripts/check-repository.mjs` reads workflow files through a YAML parser and
+asks its questions of the parsed document. Reading the text instead meant
+re-deriving YAML one spelling at a time — quoted keys, escaped scalars, flow
+collections, anchors, merge keys, comments that look like block scalars — and
+each spelling missed was a silent bypass. The parser decides what the document
+says; the guard only decides what is allowed:
 
 - every `permissions:` declaration must be provably `read` or `none`; an
   unrecognised value fails rather than passes;
@@ -27,5 +28,6 @@ and asks its questions of what remains:
   copy cannot be trusted to have run;
 - actions are pinned to a full commit SHA, container actions to a digest.
 
-Each rule is written to fail closed: a shape the guard cannot read is rejected,
-not assumed safe. Write it in plain block YAML and the guard reads it.
+Each rule fails closed: a permission value that is not recognisably read-only
+is rejected rather than assumed safe, and a workflow that does not parse is
+rejected outright.
