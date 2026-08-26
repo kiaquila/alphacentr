@@ -216,7 +216,7 @@ test("repository policy rejects a write-capable workflow", () => {
     writeFileSync(path, readFileSync(path, "utf8").replace("  contents: read", "  contents: write"));
     const result = run(root, "check-repository.mjs");
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /may not grant contents: write/);
+    assert.match(result.stderr, /may not grant write permissions/);
   });
 });
 
@@ -224,10 +224,15 @@ test("repository policy rejects job-level permission overrides", () => {
   /* A job-level `permissions:` overrides the top-level grant, so checking only
      the column-zero declaration would let a job become write-capable while the
      file still reads `permissions: contents: read` at the top. */
-  for (const [override, expected] of [
-    ["    permissions: write-all", /may not grant write permissions/],
-    ["    permissions: {contents: write}", /may not grant write permissions/],
-    ["    permissions:\n      contents: write", /may not grant contents: write/]
+  for (const override of [
+    "    permissions: write-all",
+    '    permissions: "write-all"',
+    "    permissions: {contents: write}",
+    "    permissions:\n      contents: write",
+    '    permissions:\n      contents: "write"',
+    "    permissions:\n      contents: 'write'",
+    "    permissions:\n      contents: read\n      id-token: write",
+    "    permissions:\n      contents: write # needed for the release"
   ]) {
     withFixture((root) => {
       const path = join(root, ".github/workflows/ci.yml");
@@ -236,7 +241,25 @@ test("repository policy rejects job-level permission overrides", () => {
       writeFileSync(path, workflow);
       const result = run(root, "check-repository.mjs");
       assert.equal(result.status, 1, `accepted job override: ${override}`);
-      assert.match(result.stderr, expected);
+      assert.match(result.stderr, /may not grant write permissions/);
+    });
+  }
+});
+
+test("read-only permission declarations still pass", () => {
+  for (const override of [
+    "    permissions:\n      contents: read",
+    '    permissions:\n      contents: "read"',
+    "    permissions: read-all",
+    "    permissions: {}"
+  ]) {
+    withFixture((root) => {
+      const path = join(root, ".github/workflows/ci.yml");
+      const workflow = readFileSync(path, "utf8")
+        .replace("    runs-on: ubuntu-latest", `${override}\n    runs-on: ubuntu-latest`);
+      writeFileSync(path, workflow);
+      const result = run(root, "check-repository.mjs");
+      assert.equal(result.status, 0, `rejected read-only override: ${override}\n${result.stderr}`);
     });
   }
 });

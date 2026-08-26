@@ -48,14 +48,32 @@ const SECRETS = [
 ];
 const PERSONAL_PATHS = [/\/Users\/[A-Za-z0-9._-]+\//, /\/home\/[A-Za-z0-9._-]+\//, /[A-Za-z]:\\Users\\/];
 
-/* Permissions a pull-request workflow must never grant itself. Validation runs
-   on proposed code, so anything beyond reading the repository would let a
-   branch mint its own approval or publish from an unreviewed commit. */
-const WRITE_SCOPES = [
-  "actions", "attestations", "checks", "contents", "deployments", "discussions",
-  "id-token", "issues", "packages", "pages", "pull-requests", "repository-projects",
-  "security-events", "statuses"
-];
+/* Every `permissions:` declaration in a workflow, as a list of the raw entries
+   it grants. A job-level declaration overrides the top-level one, so all of
+   them matter, and both the inline form (`permissions: write-all`) and the
+   nested block form are collected. Returning the raw entries — rather than
+   testing shapes with a regex per shape — keeps the caller's rule to a single
+   question, which is what the previous guard failed to do. */
+function permissionGrants(text) {
+  const lines = text.split("\n");
+  const grants = [];
+  for (const [index, line] of lines.entries()) {
+    const declaration = line.match(/^([ \t]*)permissions:[ \t]*(.*)$/);
+    if (!declaration) continue;
+    const [, indent, rest] = declaration;
+    const inline = rest.replace(/#.*$/, "").trim();
+    if (inline) {
+      grants.push({ entry: inline, unclosed: inline.startsWith("{") && !inline.includes("}") });
+      continue;
+    }
+    for (const nested of lines.slice(index + 1)) {
+      if (!nested.trim() || nested.trim().startsWith("#")) continue;
+      if (nested.match(/^[ \t]*/)[0].length <= indent.length) break;
+      grants.push({ entry: nested.replace(/#.*$/, "").trim(), unclosed: false });
+    }
+  }
+  return grants;
+}
 
 function listTrackedFiles() {
   const listed = spawnSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
@@ -112,20 +130,17 @@ function checkWorkflow(workflow) {
   if (!/^permissions:\s*(?:\n|$)/m.test(text)) {
     failures.push(`Workflow must declare top-level permissions: ${workflow}`);
   }
-  /* A job-level `permissions:` overrides the top-level one, so every
-     declaration is checked at any indentation, in both the inline form
-     (`permissions: write-all`, `permissions: {contents: write}`) and the
-     nested block form handled by the scope loop below. */
-  for (const match of text.matchAll(/^[ \t]*permissions:[ \t]*(.*)$/gm)) {
-    const inline = match[1].replace(/#.*$/, "").trim();
-    if (inline && /\bwrite(?:-all)?\b/.test(inline)) {
-      failures.push(`Workflow may not grant write permissions: ${workflow}`);
+  /* A permissions value is only ever read, write, or none, so any `write`
+     anywhere in a declaration is a write grant — quoted or not, inline or
+     nested, top-level or job-level. Validation runs on proposed code, so a
+     write token would let a branch mint its own approval or publish from an
+     unreviewed commit. */
+  for (const { entry, unclosed } of permissionGrants(text)) {
+    if (unclosed) {
+      failures.push(`Workflow permissions must be a single-line or nested mapping in ${workflow}`);
     }
-  }
-  for (const match of text.matchAll(/^\s*(?:[a-z-]+|["'][a-z-]+["']):\s*write\s*(?:#.*)?$/gm)) {
-    const scope = match[0].trim().split(":")[0].replaceAll(/["']/g, "");
-    if (WRITE_SCOPES.includes(scope)) {
-      failures.push(`Workflow may not grant ${scope}: write in ${workflow}`);
+    if (/(?:^|[^a-z-])write(?:-all)?(?:[^a-z-]|$)/.test(entry.replaceAll(/["']/g, ""))) {
+      failures.push(`Workflow may not grant write permissions (${entry}) in ${workflow}`);
     }
   }
   if (/\bsecrets\.(?!GITHUB_TOKEN\b)[A-Za-z_][A-Za-z0-9_]*/.test(text)) {
