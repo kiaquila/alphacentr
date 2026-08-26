@@ -227,7 +227,6 @@ test("repository policy rejects job-level permission overrides", () => {
   for (const override of [
     "    permissions: write-all",
     '    permissions: "write-all"',
-    "    permissions: {contents: write}",
     "    permissions:\n      contents: write",
     '    permissions:\n      contents: "write"',
     "    permissions:\n      contents: 'write'",
@@ -238,7 +237,6 @@ test("repository policy rejects job-level permission overrides", () => {
     '    "permissions": write-all',
     "    permissions:\n      'contents': write",
     "    permissions:\n      \"contents\": 'write'",
-    "    permissions: {contents: read, id-token: write}",
     /* Fail closed: a shape the guard cannot read is rejected, not assumed safe. */
     "    permissions: {contents: write",
     "    permissions: something-unexpected"
@@ -263,9 +261,7 @@ test("read-only permission declarations still pass", () => {
     "    permissions:\n      contents: read # only reads the checkout",
     "    permissions:\n      contents: read\n      id-token: none",
     "    permissions: read-all",
-    '    "permissions": read-all',
-    "    permissions: {}",
-    "    permissions: {contents: read, id-token: none}"
+    '    "permissions": read-all'
   ]) {
     withFixture((root) => {
       const path = join(root, ".github/workflows/ci.yml");
@@ -297,6 +293,45 @@ test("repository policy rejects YAML the guard does not decode", () => {
       writeFileSync(path, workflow);
       const result = run(root, "check-repository.mjs");
       assert.equal(result.status, 1, `accepted undecodable YAML: ${override}`);
+      assert.match(result.stderr, expected);
+    });
+  }
+});
+
+test("flow collections are refused so line-oriented reading stays valid", () => {
+  /* A whole job written as a flow mapping keeps its permissions off the start
+     of any line, which is where the guard reads them. */
+  for (const override of [
+    "  flow-job: {permissions: write-all, runs-on: ubuntu-latest, steps: [{run: echo hi}]}",
+    "    permissions: {contents: write}",
+    "    permissions: {contents: read, id-token: write}",
+    "    permissions: {}"
+  ]) {
+    withFixture((root) => {
+      const path = join(root, ".github/workflows/ci.yml");
+      const workflow = readFileSync(path, "utf8")
+        .replace("jobs:", `jobs:\n${override}`);
+      writeFileSync(path, workflow);
+      const result = run(root, "check-repository.mjs");
+      assert.equal(result.status, 1, `accepted flow collection: ${override}`);
+      assert.match(result.stderr, /flow collection/);
+    });
+  }
+});
+
+test("quoted trigger keys are still detected", () => {
+  for (const [trigger, expected] of [
+    ['  "workflow_dispatch":', /Manual dispatch/],
+    ["  'workflow_dispatch':", /Manual dispatch/],
+    ['  "workflow_run":', /workflow_run/],
+    ['  "pull_request_target":', /pull_request_target/]
+  ]) {
+    withFixture((root) => {
+      const path = join(root, ".github/workflows/ci.yml");
+      const workflow = readFileSync(path, "utf8").replace("  schedule:", `${trigger}\n  schedule:`);
+      writeFileSync(path, workflow);
+      const result = run(root, "check-repository.mjs");
+      assert.equal(result.status, 1, `accepted trigger: ${trigger}`);
       assert.match(result.stderr, expected);
     });
   }

@@ -48,6 +48,13 @@ const SECRETS = [
 ];
 const PERSONAL_PATHS = [/\/Users\/[A-Za-z0-9._-]+\//, /\/home\/[A-Za-z0-9._-]+\//, /[A-Za-z]:\\Users\\/];
 
+/* A YAML key may be written plain or quoted, and all three spell the same key.
+   Escaped spellings are refused outright by UNREADABLE_YAML below, so matching
+   these three is exhaustive for the keys this guard cares about. */
+function keyPattern(name) {
+  return new RegExp(`^[ \\t]*(?:${name}|"${name}"|'${name}')[ \\t]*:`, "m");
+}
+
 const PERMISSIONS_KEY = /^([ \t]*)(?:permissions|"permissions"|'permissions')[ \t]*:[ \t]*(.*)$/;
 const READ_VALUES = new Set(["read", "none"]);
 
@@ -68,6 +75,11 @@ const READ_VALUES = new Set(["read", "none"]);
    parsed one rather than merely close to it. */
 const UNREADABLE_YAML = [
   [/"[^"\n]*\\[^"\n]*"/, "an escaped double-quoted scalar"],
+  /* A flow collection puts structure on one line, which is precisely where a
+     line-oriented reader stops seeing it: `job: {permissions: write-all, ...}`
+     hides a token grant that block style would expose. `${{ }}` expressions are
+     untouched — their brace follows `$`, not `: `. */
+  [/^[ \t]*(?:-[ \t]+)?[^\s:#][^:#\n]*:[ \t]*[{[]/m, "a flow collection"],
   [/^[ \t]*\?(?:[ \t]|$)/m, "an explicit key"],
   [/^[ \t]*(?:<<|"<<"|'<<')[ \t]*:/m, "a merge key"],
   [/:[ \t]+[&*][A-Za-z_][\w-]*(?=[ \t]|$)/m, "a YAML anchor or alias"],
@@ -182,7 +194,7 @@ function checkWorkflow(workflow) {
   if (/\bpull_request_target\b/.test(text)) {
     failures.push(`High-risk pull_request_target trigger in ${workflow}`);
   }
-  if (/^\s*workflow_run:/m.test(text)) {
+  if (keyPattern("workflow_run").test(text)) {
     failures.push(`workflow_run runs privileged against proposed code in ${workflow}`);
   }
   /* A manual run selects a ref, and GitHub loads that ref's copy of the
@@ -190,7 +202,7 @@ function checkWorkflow(workflow) {
      from that same copy, ever sees them. No `if` condition inside the file can
      fix that, because the branch owns the condition too. The only reliable
      answer for a repository that needs no manual runs is not to offer them. */
-  if (/^\s*workflow_dispatch:/m.test(text)) {
+  if (keyPattern("workflow_dispatch").test(text)) {
     failures.push(`Manual dispatch lets a branch supply its own workflow in ${workflow}`);
   }
   const declaresTopLevel = text
