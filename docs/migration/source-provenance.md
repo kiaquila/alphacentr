@@ -138,35 +138,40 @@ Verified on the migrated tree by `npm --prefix site run check`:
 Nothing was added: no medical promise, price, backend, payment flow, CDN,
 analytics, external font, or protected book text.
 
-## Baseline pin and its required follow-up
+## Harness baseline
 
-`.web-design/lock.json` pins the baseline at
-`6e0050b035ba2f7bd7584fade4a028278e06e779`, version `0.1.0-dev`. This is a
-**provisional** pin: at migration time `kiaquila/web-design` had no immutable
-stable release of the project template, and the draft pull request that
-introduces it was explicitly not to be merged.
+The development harness in this repository — the repository guard, the project
+check runner, the payload budget, the config contract, the CI workflow, and the
+`docs/content-and-design.md`, `docs/security.md`, and `docs/testing.md`
+standards — was copied from the `template/` directory of `kiaquila/web-design`
+at `ea8501fdb90236fcb891e97b15f7a42a62f76ff1` ("refactor: add a lightweight
+web-design project template (#46)").
 
-The pin is honest rather than a workaround. The commit is a real 40-character
-SHA in the source repository, `scripts/bootstrap-project.mjs` accepted it with
-no local edit, and both `check-managed-files.mjs` and `check-baseline-change.mjs`
-accept `0.1.0-dev` as a release version. Nothing in the baseline was patched to
-make this pass.
+| Fact | Value |
+| --- | --- |
+| Baseline repository | `kiaquila/web-design` (public) |
+| Baseline commit | `ea8501fdb90236fcb891e97b15f7a42a62f76ff1` |
+| Baseline subtree | `template/` |
 
-**Required follow-up.** After the draft template pull request is merged and the
-first immutable stable release is tagged, re-pin this project onto that
-release's full commit SHA in a separate pull request:
+The copy was adapted locally and is now owned here. Two deliberate departures
+from the template, both recorded in `docs/testing.md`:
 
-```bash
-npm run sync:web-design -- plan  --source-ref <stable-release-sha> --version <version>
-npm run sync:web-design -- apply --source-ref <stable-release-sha> --version <version>
-```
+- the template's aggregate `dist`-wide payload budget was replaced by per-page,
+  shared-asset, and per-file budgets, because this site builds 828 routes and a
+  total over all of them does not describe any visitor's page weight;
+- `scripts/check-repository.mjs` is the template's ~100-line guard rather than
+  the 2251-line policy engine that an earlier revision of this branch carried.
+  That engine tried to parse shell text inside workflow steps, and every review
+  finding against it was a gap in that parsing. This repository has one
+  read-only workflow, no write-capable job, and no actor-controlled input, so
+  the guard enforces those properties structurally — it rejects any workflow
+  that grants a write scope, consumes a repository secret, or uses
+  `pull_request_target` or `workflow_run` — instead of trying to decide whether
+  a given shell command is safe. It also stays inside the 600-line-per-file
+  limit that `AGENTS.md` sets, which the previous implementation did not.
 
-Until then, `baseline-source-verification` resolves the pin against a commit
-that lives on a feature branch of the source repository. `kiaquila/web-design`
-is public for the duration of the migration, so the check falls back to this
-repository's own `github.token` and needs no `WEB_DESIGN_READ_TOKEN`. That
-depends on the source's visibility, not on anything here: if the owner later
-makes `kiaquila/web-design` private, this check starts failing because the
-repository token cannot read another private repository, and the read-only
-secret described in `docs/operations/github-setup.md` becomes required. Re-read
-the source's visibility before trusting this paragraph rather than assuming it.
+Nothing in this repository reaches back to `kiaquila/web-design` at runtime or
+in CI. There is no lock file, release manifest, managed-file list, profile,
+synchronisation script, update workflow, or upstream-verification check: later
+template improvements are copied in selectively through ordinary reviewable
+pull requests.

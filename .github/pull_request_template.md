@@ -15,9 +15,9 @@
 
 - [ ] The PR contains no unrelated customer data or assets.
 - [ ] No secrets, `.env`, personal paths, generated builds, dependencies, or local state are tracked.
-- [ ] `npm run preflight`
-- [ ] Project checks from `.web-design/project.json`
-- [ ] `Codex Review` is green for the current head.
+- [ ] `npm run preflight` (repository guard, harness tests, site check, payload budget)
+- [ ] Any payload-budget change is re-measured and explained below.
+- [ ] `project-ci` and `osv-scan` are green for the current head.
 
 ## Validation evidence
 

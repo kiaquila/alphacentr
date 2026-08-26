@@ -1,10 +1,16 @@
 name: Project CI
 
+# The repository's only workflow. Both jobs are read-only and run no code from
+# outside the checked-out commit, so a proposed branch cannot escalate to a
+# write token, publish a check, or read a secret.
+
 on:
   pull_request:
   push:
     branches:
       - main
+  schedule:
+    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -23,25 +29,22 @@ jobs:
         with:
           node-version: "22.18.0"
 
-      - name: Install npm dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          declare -A installed=()
-          while IFS= read -r -d '' lockfile; do
-            directory="$(dirname "$lockfile")"
-            if [ -n "${installed[$directory]:-}" ]; then
-              continue
-            fi
-            installed["$directory"]=1
-            npm ci --prefix "$directory"
-          done < <(
-            find . -type f \
-              \( -name package-lock.json -o -name npm-shrinkwrap.json \) \
-              -not -path './.git/*' \
-              -not -path '*/node_modules/*' \
-              -print0
-          )
+      - name: Install locked site dependencies
+        run: npm ci --ignore-scripts --prefix site
 
-      - name: Run project checks
-        run: node scripts/run-project-checks.mjs
+      - name: Repository guard, harness tests, site check, payload budget
+        run: npm run preflight
+
+  osv-scan:
+    name: osv-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Scan dependencies
+        uses: google/osv-scanner-action/osv-scanner-action@8deb546fdb875b9996d27d4950be7312dac076a1 # v2.5.0
+        with:
+          scan-args: |-
+            --recursive
+            .

@@ -1,10 +1,17 @@
 # Cloudflare cutover
 
-**Nothing in this document has been performed.** Cloudflare was deliberately
-left untouched by the migration. The `alphacentr` Worker still builds from
-`kiaquila/web-design`, and the live stage is unaffected by this repository.
-Perform the cutover only after the migration pull request is merged and the
-owner has explicitly authorised it.
+**Nothing in this document has been performed, and this repository has no
+Cloudflare integration.** The Cloudflare connection is deliberately disabled
+here: no Cloudflare token is stored in this repository or in GitHub, no workflow
+deploys, and the repository's only workflow is read-only. The `alphacentr`
+Worker still builds from `kiaquila/web-design`, so the live stage is unaffected
+by anything merged here.
+
+`site/` keeps its `wrangler.json` and the `stage:deploy` / `stage:preview`
+scripts so the Worker contract stays reviewable and the cutover needs no code
+change — but they are run by a person, on purpose, never by CI. Perform the
+cutover only after the migration pull request is merged and the owner has
+explicitly authorised it.
 
 ## Current deployment — the rollback point
 
@@ -66,7 +73,7 @@ step 3 is the first moment the new repository can publish.
 3. **Repoint the Git connection.** In *Workers → `alphacentr` → Settings →
    Build*, disconnect `kiaquila/web-design` and connect
    `kiaquila/alphacentr`. Grant the Cloudflare GitHub App access to the new
-   private repository when prompted.
+   repository when prompted.
 4. **Update the build settings** in the same panel:
    - root directory `site` (was `alphacentr/site`);
    - build command `npm run build`;

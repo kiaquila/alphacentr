@@ -24,7 +24,7 @@
 - `site/src/data/*.mjs` — таксономия, навигация, реквизиты и вводные тексты.
 - `site/src/content/media.json` — карта «сеанс/статья → изображение».
 - `site/src/styles/tokens.css` — токены дизайн-системы.
-- `.web-design/project.json` — профиль проекта и обязательные проверки.
+- `web-design.config.json` — обязательные проверки и бюджеты веса страниц.
 - `docs/migration/` — провенанс переноса и план перехода Cloudflare.
 
 Не менять факты, цены, длительность, реквизиты, контакты, юридические тексты и
@@ -52,9 +52,20 @@
 Из корня репозитория — ровно то, что запускает CI:
 
 ```bash
-npm run preflight      # политика репозитория, дрейф baseline-файлов, тесты baseline
-npm run project:check  # npm --prefix site run check: сборка + тесты сайта
+npm ci --ignore-scripts --prefix site   # один раз, зависимости сайта
+npm run preflight                       # guard, тесты harness, сборка и тесты
+                                        # сайта, бюджет веса страниц
 ```
+
+`preflight` — это ровно то, что запускает `project-ci`. Отдельные шаги:
+`npm run check:repository`, `npm run test:harness`, `npm run check:project`
+(`npm --prefix site run check`), `npm run check:budget`.
+
+Бюджет веса измеряется по representative-страницам, а не по всему `dist/`:
+сайт генерирует 828 страниц, поэтому суммарный вес всех HTML и изображений не
+отражает вес одной пользовательской страницы. Значения и обоснование —
+в `web-design.config.json` и `docs/testing.md`. Менять предел только по
+новому измерению и с объяснением в PR.
 
 Для визуальных изменений дополнительно проверять узкий (375 px) и широкий
 (1280 px и более) макеты, состояния фокуса с клавиатуры, работу мобильного меню

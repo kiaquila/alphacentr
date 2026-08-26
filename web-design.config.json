@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "projectSlug": "alphacentr",
+  "projectChecks": [
+    {
+      "name": "site build and route tests",
+      "command": ["npm", "--prefix", "site", "run", "check"]
+    }
+  ],
+  "performance": {
+    "outputDirectory": "site/dist",
+    "allowedExtensions": [
+      ".css",
+      ".html",
+      ".js",
+      ".svg",
+      ".txt",
+      ".webp",
+      ".woff2",
+      ".xml"
+    ],
+    "representativePages": [
+      {
+        "name": "home",
+        "file": "index.html",
+        "measuredGzipBytes": 8794,
+        "gzipBytes": 10240
+      },
+      {
+        "name": "catalogue index",
+        "file": "catalog/index.html",
+        "measuredGzipBytes": 5602,
+        "gzipBytes": 6656
+      },
+      {
+        "name": "catalogue category (largest)",
+        "file": "catalog/samorazvitie_i_lichnostnyy_rost/index.html",
+        "measuredGzipBytes": 8511,
+        "gzipBytes": 10240
+      },
+      {
+        "name": "session page (largest)",
+        "file": "catalog/emotsionalnaya_zavisimost/552/index.html",
+        "measuredGzipBytes": 16029,
+        "gzipBytes": 18432
+      },
+      {
+        "name": "articles index",
+        "file": "stati/index.html",
+        "measuredGzipBytes": 5077,
+        "gzipBytes": 6144
+      },
+      {
+        "name": "article section (largest)",
+        "file": "stati/lechenie_zabolevaniy_gipnozom/index.html",
+        "measuredGzipBytes": 9816,
+        "gzipBytes": 11264
+      },
+      {
+        "name": "article page (largest)",
+        "file": "stati/knigi_na_temu_psikhologii/v_m_bekhterev_bessmertie_chelovecheskoy_lichnosti_kak_nauchnaya_problema/index.html",
+        "measuredGzipBytes": 42329,
+        "gzipBytes": 47104
+      },
+      {
+        "name": "author page",
+        "file": "avtor/index.html",
+        "measuredGzipBytes": 4488,
+        "gzipBytes": 5632
+      },
+      {
+        "name": "testimonials (largest listing)",
+        "file": "otzyvy/index.html",
+        "measuredGzipBytes": 32122,
+        "gzipBytes": 36864
+      },
+      {
+        "name": "FAQ",
+        "file": "info/faq/index.html",
+        "measuredGzipBytes": 17891,
+        "gzipBytes": 20480
+      }
+    ],
+    "sharedAssets": [
+      {
+        "name": "stylesheet",
+        "files": ["assets/styles.css"],
+        "measuredGzipBytes": 6815,
+        "gzipBytes": 8192
+      },
+      {
+        "name": "client script",
+        "files": ["assets/nav.js"],
+        "measuredGzipBytes": 801,
+        "gzipBytes": 1024
+      },
+      {
+        "name": "web fonts",
+        "files": [
+          "assets/fonts/inter-cyrillic.woff2",
+          "assets/fonts/inter-latin.woff2"
+        ],
+        "measuredRawBytes": 67176,
+        "rawBytes": 73728
+      }
+    ],
+    "perFileLimits": [
+      {
+        "name": "cover image",
+        "extension": ".webp",
+        "measuredMaxRawBytes": 321644,
+        "maxRawBytes": 358400
+      },
+      {
+        "name": "vector asset",
+        "extension": ".svg",
+        "measuredMaxRawBytes": 14595,
+        "maxRawBytes": 16384
+      }
+    ]
+  }
+}

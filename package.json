@@ -3,14 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node scripts/check-repository.mjs && node scripts/check-managed-files.mjs",
-    "test": "node scripts/test-web-design.mjs",
-    "policy:install": "npm ci --ignore-scripts --prefix .web-design/policy",
-    "preflight": "npm run policy:install && npm run check && npm test",
-    "setup": "node scripts/bootstrap-project.mjs",
-    "project:check": "node scripts/run-project-checks.mjs",
-    "sync:web-design": "node scripts/sync-project.mjs",
-    "manifest:web-design": "node scripts/build-release-manifest.mjs"
+    "check:repository": "node scripts/check-repository.mjs",
+    "check:project": "node scripts/run-project-checks.mjs",
+    "check:budget": "node scripts/check-performance-budget.mjs",
+    "test:harness": "node --test tests/*.test.mjs",
+    "preflight": "npm run check:repository && npm run test:harness && npm run check:project && npm run check:budget"
   },
   "engines": {
     "node": ">=22.18.0"
