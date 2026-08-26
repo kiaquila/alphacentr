@@ -103,6 +103,13 @@ function stripCssComments(css) {
       }
       continue;
     }
+    /* A backslash escapes the next character anywhere in CSS, not only inside
+       a string, so an escaped quote does not open one. */
+    if (character === "\\") {
+      out += character + (css[index + 1] ?? "");
+      index += 1;
+      continue;
+    }
     if (character === '"' || character === "'") {
       quote = character;
       out += character;

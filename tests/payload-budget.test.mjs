@@ -312,6 +312,9 @@ test("metadata and commented-out CSS are not fetched", () => {
   for (const markup of [
     '<div data-style="background:url(/preview.webp)"></div>',
     "<style>/* background:url(/retired.webp) */</style>",
+    /* A backslash escapes outside a string too, so this opens no string and
+       the comment after it is still a comment. */
+    '<style>:root{--quote: \\";} /* background:url(/retired.webp) */</style>',
     '<img data-src="/assets/media/wide.webp" />'
   ]) {
     withFixture((root) => {
