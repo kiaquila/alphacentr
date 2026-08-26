@@ -9,6 +9,7 @@
 /package.json @kiaquila
 /package-lock.json @kiaquila
 /site/package.json @kiaquila
+/site/package-lock.json @kiaquila
 # npm config can replace the shell that runs those scripts. The guard refuses a
 # tracked .npmrc outright; these entries cover the file if that ever changes.
 /.npmrc @kiaquila
