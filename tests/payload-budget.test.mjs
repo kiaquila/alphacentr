@@ -115,7 +115,10 @@ test("media counts however the attribute is spelled", () => {
     '<img src="/assets/media/wide.webp?v=1" />',
     '<img src="/assets/media/wide.webp#frag" />',
     /* A relative URL resolves against the document that carries it. */
-    '<img src="assets/media/wide.webp" />'
+    '<img src="assets/media/wide.webp" />',
+    /* HTML attribute names are case-insensitive. */
+    '<IMG SRC="/assets/media/wide.webp" />',
+    '<img SrcSet="/assets/media/wide.webp 2x" />'
   ]) {
     withFixture((root) => {
       write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
@@ -152,6 +155,20 @@ test("a link to another page is navigation, not payload", () => {
     );
     const result = run(root, "check-performance-budget.mjs");
     assert.equal(result.status, 0, result.stderr);
+  });
+});
+
+test("the CSS url() function name is case-insensitive", () => {
+  withFixture((root) => {
+    write(root, "site/dist/assets/hero.webp", randomBytes(2 * 1024));
+    write(
+      root,
+      "site/dist/assets/styles.css",
+      ':root{color:#1b2a24}.h{background:URL("/assets/hero.webp")}\n'
+    );
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /references an unbudgeted asset: assets\/hero\.webp/);
   });
 });
 

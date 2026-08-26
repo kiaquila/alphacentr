@@ -100,11 +100,11 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory) {
      as `url descriptor, url descriptor`; the browser fetches one of them, so
      every candidate counts toward what the page can cost. */
   for (const match of html.matchAll(
-    /\b(src|href|poster|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g
+    /\b(src|href|poster|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
   )) {
     const [, attribute, doubleQuoted, singleQuoted, unquoted] = match;
     const value = doubleQuoted ?? singleQuoted ?? unquoted ?? "";
-    const urls = attribute === "srcset"
+    const urls = attribute.toLowerCase() === "srcset"
       ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
       : [value.trim()];
     for (const url of urls) add(url);
@@ -187,8 +187,9 @@ function checkStylesheetMedia(assets, output, files) {
     const css = readFileSync(join(output, stylesheet), "utf8");
     /* CSS spells a url() value three ways — double-quoted, single-quoted, or
        unquoted (no parentheses, whitespace or quotes) — so a quoted URL may
-       legitimately contain `)`. Terminating at the first one truncated it. */
-    for (const match of css.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s"']*))\s*\)/g)) {
+       legitimately contain `)`. Terminating at the first one truncated it.
+       The function name is case-insensitive, as are HTML attribute names. */
+    for (const match of css.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s"']*))\s*\)/gi)) {
       const [, doubleQuoted, singleQuoted, unquoted] = match;
       const asset = assetPath(doubleQuoted ?? singleQuoted ?? unquoted ?? "", directory);
       if (!asset || !present.has(asset) || listed.has(asset)) continue;
