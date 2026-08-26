@@ -288,6 +288,24 @@ test("media pulled in by a page's own CSS counts against that page", () => {
   }
 });
 
+test("a comment delimiter inside a CSS string is literal text", () => {
+  /* `/*` in a quoted value does not open a comment, so a regex sweep between
+     two strings would swallow the live declaration between them. */
+  withFixture((root) => {
+    write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
+    write(
+      root,
+      "site/dist/index.html",
+      "<!doctype html><title>Home</title><style>" +
+        '.a{content:"/*"} .b{background:url(/assets/media/wide.webp)} .c{content:"*/"}' +
+        "</style>\n"
+    );
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Media of home \(index\.html\): \d+ B exceeds 4096 B/);
+  });
+});
+
 test("metadata and commented-out CSS are not fetched", () => {
   /* `data-style` is not a style attribute, and a commented-out declaration is
      never requested; neither may inflate a page total or fail the build. */

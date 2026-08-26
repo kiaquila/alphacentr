@@ -83,13 +83,44 @@ function decodeCssEscapes(value) {
 /* CSS spells a url() value three ways — double-quoted, single-quoted, or
    unquoted (no parentheses, whitespace or quotes) — and the function name is
    case-insensitive, so a quoted URL may legitimately contain `)`. */
+/* Remove CSS comments, which are never fetched, without touching string
+   contents: `/*` inside a quoted value is literal text, so a regex sweep can
+   swallow a live declaration between two strings. Strings and comments are a
+   closed part of the CSS grammar, so scanning for just those two is complete
+   even though parsing CSS in general would not be. */
+function stripCssComments(css) {
+  let out = "";
+  let quote = null;
+  for (let index = 0; index < css.length; index += 1) {
+    const character = css[index];
+    if (quote) {
+      out += character;
+      if (character === "\\") {
+        out += css[index + 1] ?? "";
+        index += 1;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      out += character;
+      continue;
+    }
+    if (character === "/" && css[index + 1] === "*") {
+      const end = css.indexOf("*/", index + 2);
+      index = end === -1 ? css.length : end + 1;
+      out += " ";
+      continue;
+    }
+    out += character;
+  }
+  return out;
+}
+
 function* cssUrls(css) {
-  /* A commented-out declaration is never fetched. Removing comments could in
-     principle disturb a quoted URL containing `/*`, but that direction is
-     covered: an asset whose only reference is lost stops being discovered and
-     the reachability check reports it rather than under-counting silently. */
-  const active = css.replace(/\/\*[\s\S]*?\*\//g, " ");
-  for (const match of active.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s"']*))\s*\)/gi)) {
+  for (const match of stripCssComments(css).matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s"']*))\s*\)/gi)) {
     yield match[1] ?? match[2] ?? match[3] ?? "";
   }
 }
