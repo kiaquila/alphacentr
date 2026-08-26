@@ -290,6 +290,22 @@ test("media pulled in by a page's own CSS counts against that page", () => {
   }
 });
 
+test("a quoted attribute may contain a closing angle bracket", () => {
+  /* The tag scan must step over quoted values, or `alt="a > b"` would end the
+     tag early and hide the src that follows it. */
+  withFixture((root) => {
+    write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
+    write(
+      root,
+      "site/dist/index.html",
+      '<!doctype html><title>Home</title><img alt="a > b" src="/assets/media/wide.webp" />\n'
+    );
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Media of home \(index\.html\): \d+ B exceeds 4096 B/);
+  });
+});
+
 test("a <link> href is an immediate fetch and is counted", () => {
   withFixture((root) => {
     write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
@@ -335,7 +351,10 @@ test("metadata and commented-out CSS are not fetched", () => {
     /* Commented-out markup is not fetched. */
     '<!-- <img src="/assets/media/wide.webp" /> -->',
     /* An anchor is navigation: the file is fetched only if someone clicks. */
-    '<a href="/assets/media/wide.webp">download</a>'
+    '<a href="/assets/media/wide.webp">download</a>',
+    /* Attribute-looking text content is not an attribute. */
+    "<code>Example: style=background:url(/assets/media/wide.webp)</code>",
+    "<code>src=/assets/media/wide.webp</code>"
   ]) {
     withFixture((root) => {
       write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));

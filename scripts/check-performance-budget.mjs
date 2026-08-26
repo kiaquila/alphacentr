@@ -208,16 +208,26 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
     }
   };
 
-  scan(live, "src|poster|srcset");
-  for (const link of live.matchAll(/<link\b[^>]*>/gi)) scan(link[0], "href");
-  /* Media the page pulls in through its own CSS — a <style> block or a style
-     attribute — is fetched exactly like an <img> and belongs to this page, not
-     to the shared stylesheet. */
-  for (const block of [
-    ...live.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi),
-    ...live.matchAll(/(?:^|[\s"'\/])style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi)
-  ]) {
-    for (const url of cssUrls(block[1] ?? block[2] ?? block[3] ?? "")) {
+  /* Scan start tags rather than the whole document: `style=…` or `src=…`
+     appearing in text content — inside a <code> sample, say — is not an
+     attribute and fetches nothing. The tag pattern steps over quoted values so
+     a `>` inside one (`alt="a > b"`) does not end the tag early. */
+  const START_TAG = /<([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+  for (const [, name, attributes] of live.matchAll(START_TAG)) {
+    scan(attributes, "src|poster|srcset");
+    if (name.toLowerCase() === "link") scan(attributes, "href");
+    for (const style of attributes.matchAll(
+      /(?:^|[\s"'\/])style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
+    )) {
+      for (const url of cssUrls(style[1] ?? style[2] ?? style[3] ?? "")) {
+        add(decodeCssEscapes(decodeEntities(url)), true);
+      }
+    }
+  }
+  /* A <style> block's contents are CSS, fetched exactly like an <img> and
+     belonging to this page rather than to the shared stylesheet. */
+  for (const block of live.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) {
+    for (const url of cssUrls(block[1] ?? "")) {
       add(decodeCssEscapes(decodeEntities(url)), true);
     }
   }
