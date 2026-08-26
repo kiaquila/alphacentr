@@ -35,6 +35,10 @@ function filesUnder(directory) {
   return files.sort();
 }
 
+/* Where the build writes per-page imagery, as opposed to the handful of assets
+   every page loads. */
+const MEDIA_DIRECTORY = "assets/media";
+
 function gzipBytes(buffer) {
   return gzipSync(buffer, { level: 9 }).length;
 }
@@ -97,17 +101,26 @@ function assetPath(raw, baseDirectory) {
   return parts.join("/");
 }
 
-function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered) {
+function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, unresolved) {
   let total = 0;
   const seen = new Set();
   /* Count anything the build actually wrote, wherever it sits — a page-local
      image resolves beside its page, not under assets/. Documents are excluded:
      a link to another page is navigation, not a fetch. Shared assets are
-     excluded because they are budgeted once, separately. */
-  const add = (raw) => {
+     excluded because they are budgeted once, separately.
+
+     `mustResolve` marks the attributes that name a file the browser fetches.
+     One of those failing to resolve means this scanner could not read the
+     spelling, and that has to be reported per page: a global reachability
+     check would see the same file referenced readably from some other page and
+     stay quiet while this page undercounted. */
+  const add = (raw, mustResolve) => {
     const asset = assetPath(raw, pageDirectory);
     if (!asset || asset.endsWith(".html") || seen.has(asset) || shared.has(asset)) return;
-    if (!sizes.has(asset)) return;
+    if (!sizes.has(asset)) {
+      if (mustResolve) unresolved?.add(asset);
+      return;
+    }
     seen.add(asset);
     discovered?.add(asset);
     total += sizes.get(asset);
@@ -128,7 +141,7 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered) {
     const urls = attribute.toLowerCase() === "srcset"
       ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
       : [value.trim()];
-    for (const url of urls) add(url);
+    for (const url of urls) add(url, attribute.toLowerCase() !== "href");
   }
   return total;
 }
@@ -159,13 +172,18 @@ function checkPageFamilies(families, output, files, shared, discovered, report) 
       const html = readFileSync(join(output, page));
       const measured = gzipBytes(html);
       if (measured > heaviest.gzip) heaviest = { page, gzip: measured };
+      const unresolved = new Set();
       const bytes = referencedMediaBytes(
         html.toString("utf8"),
         sizes,
         shared,
         page.split("/").slice(0, -1).join("/"),
-        discovered
+        discovered,
+        unresolved
       );
+      for (const reference of unresolved) {
+        failures.push(`${page} references ${reference}, which this check cannot resolve to a built file`);
+      }
       if (bytes > media.bytes) media = { page, bytes };
     }
     if (count === 0) {
@@ -193,6 +211,12 @@ function checkUnbudgetedShared(assets, output, files) {
   const extensions = new Set([...listed].map((file) => extname(file).toLowerCase()));
   return files
     .map((file) => relative(output, file).split(sep).join("/"))
+    /* Per-page media is governed by the family budgets, the reachability check
+       and the per-file ceilings, so it is not held to this rule — otherwise
+       budgeting one CSS background would demand that all 363 covers be listed
+       as shared assets too. This rule is about a new page-wide stylesheet,
+       script or font, which live directly under assets/. */
+    .filter((file) => !file.startsWith(`${MEDIA_DIRECTORY}/`))
     .filter((file) => extensions.has(extname(file).toLowerCase()) && !listed.has(file))
     .map((file) => `Shared asset is not budgeted: ${file}`);
 }
@@ -200,7 +224,7 @@ function checkUnbudgetedShared(assets, output, files) {
 /* A shared stylesheet fetches its own media — `url("…")` backgrounds and
    fonts — on every page, and an HTML-only scan never sees them. Anything a
    shared stylesheet pulls in must therefore be a budgeted shared asset itself. */
-function checkStylesheetMedia(assets, output, files) {
+function checkStylesheetMedia(assets, output, files, discovered) {
   const listed = new Set(assets.flatMap((asset) => asset.files));
   const present = new Set(files.map((file) => relative(output, file).split(sep).join("/")));
   const failures = [];
@@ -214,7 +238,18 @@ function checkStylesheetMedia(assets, output, files) {
     for (const match of css.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s"']*))\s*\)/gi)) {
       const [, doubleQuoted, singleQuoted, unquoted] = match;
       const asset = assetPath(decodeCssEscapes(doubleQuoted ?? singleQuoted ?? unquoted ?? ""), directory);
-      if (!asset || !present.has(asset) || listed.has(asset)) continue;
+      if (!asset) continue;
+      if (!present.has(asset)) {
+        failures.push(`${stylesheet} references ${asset}, which this check cannot resolve to a built file`);
+        continue;
+      }
+      /* A budgeted stylesheet reference is a real fetch, so it counts as
+         discovered — otherwise the reachability check below would reject a
+         correctly budgeted CSS background as unreferenced. */
+      if (listed.has(asset)) {
+        discovered?.add(asset);
+        continue;
+      }
       failures.push(`${stylesheet} references an unbudgeted asset: ${asset}`);
     }
   }
@@ -232,7 +267,7 @@ function checkMediaReachable(performance, output, files, discovered) {
   const allowed = new Set(performance.unreferencedMedia ?? []);
   const shipped = files
     .map((file) => relative(output, file).split(sep).join("/"))
-    .filter((file) => file.startsWith("assets/media/"));
+    .filter((file) => file.startsWith(`${MEDIA_DIRECTORY}/`));
   const failures = shipped
     .filter((file) => !discovered.has(file) && !allowed.has(file))
     .map((file) => `No page references ${file}, or its reference cannot be read`);
@@ -305,11 +340,12 @@ export function checkPerformance(root) {
   const shared = new Set(performance.sharedAssets.flatMap((asset) => asset.files));
   const discovered = new Set();
   failures.push(...checkPageFamilies(performance.pageFamilies, output, files, shared, discovered, report));
-  failures.push(...checkMediaReachable(performance, output, files, discovered));
   report.push("Shared assets loaded by every page:");
   failures.push(...checkSharedAssets(performance.sharedAssets, output, report));
   failures.push(...checkUnbudgetedShared(performance.sharedAssets, output, files));
-  failures.push(...checkStylesheetMedia(performance.sharedAssets, output, files));
+  failures.push(...checkStylesheetMedia(performance.sharedAssets, output, files, discovered));
+  /* Last, so pages and stylesheets have both contributed their discoveries. */
+  failures.push(...checkMediaReachable(performance, output, files, discovered));
   report.push("Per-file ceilings:");
   failures.push(...checkPerFileLimits(performance.perFileLimits, files, output, report));
 

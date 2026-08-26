@@ -205,6 +205,43 @@ test("an image no page can be seen to reference fails loudly", () => {
   });
 });
 
+test("a reference this check cannot resolve fails on its own page", () => {
+  /* Global reachability is not enough: the same file referenced readably from
+     another page would mask an undercount here, so an unresolvable fetch
+     reference is reported against the page that carries it. */
+  withFixture((root) => {
+    write(root, "site/dist/assets/media/cover.webp", randomBytes(512));
+    write(
+      root,
+      "site/dist/other/index.html",
+      '<!doctype html><title>Other</title><img src="/assets/media/cover&period;webp" />\n'
+    );
+    write(
+      root,
+      "site/dist/index.html",
+      '<!doctype html><title>Home</title><img src="/assets/media/cover.webp" />\n'
+    );
+    const config = readConfig(root);
+    config.performance.unreferencedMedia = [];
+    writeConfig(root, config);
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /other\/index\.html references .*cover&period;webp, which this check cannot resolve/);
+  });
+});
+
+test("an href to a route is not treated as an unresolvable fetch", () => {
+  withFixture((root) => {
+    write(
+      root,
+      "site/dist/index.html",
+      '<!doctype html><title>Home</title><a href="/catalog/">Catalogue</a>\n'
+    );
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+
 test("media the config records as unreferenced is allowed", () => {
   withFixture((root) => {
     write(root, "site/dist/assets/media/orphan.webp", randomBytes(1024));
