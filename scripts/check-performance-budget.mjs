@@ -84,7 +84,12 @@ function decodeCssEscapes(value) {
    unquoted (no parentheses, whitespace or quotes) — and the function name is
    case-insensitive, so a quoted URL may legitimately contain `)`. */
 function* cssUrls(css) {
-  for (const match of css.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s"']*))\s*\)/gi)) {
+  /* A commented-out declaration is never fetched. Removing comments could in
+     principle disturb a quoted URL containing `/*`, but that direction is
+     covered: an asset whose only reference is lost stops being discovered and
+     the reachability check reports it rather than under-counting silently. */
+  const active = css.replace(/\/\*[\s\S]*?\*\//g, " ");
+  for (const match of active.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s"']*))\s*\)/gi)) {
     yield match[1] ?? match[2] ?? match[3] ?? "";
   }
 }
@@ -157,7 +162,7 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
      to the shared stylesheet. */
   for (const block of [
     ...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi),
-    ...html.matchAll(/\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)
+    ...html.matchAll(/(?:^|[\s"'\/])style\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)
   ]) {
     for (const url of cssUrls(block[1] ?? block[2] ?? "")) {
       add(decodeCssEscapes(decodeEntities(url)), true);

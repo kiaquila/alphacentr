@@ -288,6 +288,22 @@ test("media pulled in by a page's own CSS counts against that page", () => {
   }
 });
 
+test("metadata and commented-out CSS are not fetched", () => {
+  /* `data-style` is not a style attribute, and a commented-out declaration is
+     never requested; neither may inflate a page total or fail the build. */
+  for (const markup of [
+    '<div data-style="background:url(/preview.webp)"></div>',
+    "<style>/* background:url(/retired.webp) */</style>",
+    '<img data-src="/assets/media/wide.webp" />'
+  ]) {
+    withFixture((root) => {
+      write(root, "site/dist/index.html", `<!doctype html><title>Home</title>${markup}\n`);
+      const result = run(root, "check-performance-budget.mjs");
+      assert.equal(result.status, 0, `treated as a fetch: ${markup}\n${result.stderr}`);
+    });
+  }
+});
+
 test("media a shared stylesheet pulls in must be budgeted", () => {
   /* The browser fetches a CSS background on every page, and an HTML-only scan
      never sees it. */
