@@ -80,6 +80,15 @@ function decodeCssEscapes(value) {
     (hex ? String.fromCodePoint(Number.parseInt(hex, 16)) : literal));
 }
 
+/* CSS spells a url() value three ways — double-quoted, single-quoted, or
+   unquoted (no parentheses, whitespace or quotes) — and the function name is
+   case-insensitive, so a quoted URL may legitimately contain `)`. */
+function* cssUrls(css) {
+  for (const match of css.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s"']*))\s*\)/gi)) {
+    yield match[1] ?? match[2] ?? match[3] ?? "";
+  }
+}
+
 function assetPath(raw, baseDirectory) {
   const trimmed = raw.trim().replace(/^["']|["']$/g, "");
   if (!trimmed || trimmed.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return null;
@@ -142,6 +151,17 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
       ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
       : [value.trim()];
     for (const url of urls) add(url, attribute.toLowerCase() !== "href");
+  }
+  /* Media the page pulls in through its own CSS — a <style> block or a style
+     attribute — is fetched exactly like an <img> and belongs to this page, not
+     to the shared stylesheet. */
+  for (const block of [
+    ...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi),
+    ...html.matchAll(/\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)
+  ]) {
+    for (const url of cssUrls(block[1] ?? block[2] ?? "")) {
+      add(decodeCssEscapes(decodeEntities(url)), true);
+    }
   }
   return total;
 }
@@ -231,13 +251,8 @@ function checkStylesheetMedia(assets, output, files, discovered) {
   for (const stylesheet of [...listed].filter((file) => file.endsWith(".css"))) {
     const directory = stylesheet.split("/").slice(0, -1).join("/");
     const css = readFileSync(join(output, stylesheet), "utf8");
-    /* CSS spells a url() value three ways — double-quoted, single-quoted, or
-       unquoted (no parentheses, whitespace or quotes) — so a quoted URL may
-       legitimately contain `)`. Terminating at the first one truncated it.
-       The function name is case-insensitive, as are HTML attribute names. */
-    for (const match of css.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s"']*))\s*\)/gi)) {
-      const [, doubleQuoted, singleQuoted, unquoted] = match;
-      const asset = assetPath(decodeCssEscapes(doubleQuoted ?? singleQuoted ?? unquoted ?? ""), directory);
+    for (const url of cssUrls(css)) {
+      const asset = assetPath(decodeCssEscapes(url), directory);
       if (!asset) continue;
       if (!present.has(asset)) {
         failures.push(`${stylesheet} references ${asset}, which this check cannot resolve to a built file`);

@@ -270,6 +270,24 @@ test("a recorded file that is referenced again must be delisted", () => {
   });
 });
 
+test("media pulled in by a page's own CSS counts against that page", () => {
+  /* A <style> block or style attribute fetches exactly like an <img>, and the
+     bytes belong to the page that carries it. */
+  for (const markup of [
+    '<style>.h{background:url(/assets/media/wide.webp)}</style>',
+    '<div style="background:url(/assets/media/wide.webp)"></div>',
+    "<div style='background:url(\"/assets/media/wide.webp\")'></div>"
+  ]) {
+    withFixture((root) => {
+      write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
+      write(root, "site/dist/index.html", `<!doctype html><title>Home</title>${markup}\n`);
+      const result = run(root, "check-performance-budget.mjs");
+      assert.equal(result.status, 1, `inline CSS media not counted: ${markup}`);
+      assert.match(result.stderr, /Media of home \(index\.html\): \d+ B exceeds 4096 B/);
+    });
+  }
+});
+
 test("media a shared stylesheet pulls in must be budgeted", () => {
   /* The browser fetches a CSS background on every page, and an HTML-only scan
      never sees it. */
