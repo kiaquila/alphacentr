@@ -31,3 +31,25 @@ says; the guard only decides what is allowed:
 Each rule fails closed: a permission value that is not recognisably read-only
 is rejected rather than assumed safe, and a workflow that does not parse is
 rejected outright.
+
+## What the guard cannot enforce, and what backs it
+
+A `pull_request` run evaluates the candidate ref's copy of `ci.yml`, so a branch
+supplies the workflow that checks it. No rule written inside that file can bind
+it — the branch owns the rule too. This is why `workflow_dispatch`,
+`workflow_run` and `pull_request_target` are refused outright, but `pull_request`
+itself has to stay: without it there is no pull-request validation at all.
+
+What actually binds is repository configuration, outside any branch's reach.
+The state this repository relies on, verified via the API:
+
+| Setting | Value | Why it matters |
+| --- | --- | --- |
+| Default workflow permissions | `read` | A branch's copy cannot obtain a write token however it spells `permissions:` |
+| Allow GitHub Actions to approve pull requests | off | A workflow cannot approve its own pull request |
+| Actions secrets | none | There is no credential for a candidate branch to read |
+| Environments | none | No environment secret or protection rule to subvert |
+
+Keep those settings as they are. The guard's workflow rules are a fast, local
+signal that a change is heading the wrong way; they are not the boundary, and
+they should not be described as one.
