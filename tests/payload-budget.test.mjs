@@ -127,6 +127,48 @@ test("media counts however the attribute is spelled", () => {
   }
 });
 
+test("a page-local image resolves beside its own page", () => {
+  /* `src="local.webp"` on `other/index.html` is `other/local.webp`, not a
+     path under assets/, so resolving from the deployment root would miss it. */
+  withFixture((root) => {
+    write(root, "site/dist/other/local.webp", randomBytes(6 * 1024));
+    write(
+      root,
+      "site/dist/other/index.html",
+      '<!doctype html><title>Other</title><img src="local.webp" />\n'
+    );
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Media of other pages \(other\/index\.html\): \d+ B exceeds 4096 B/);
+  });
+});
+
+test("a link to another page is navigation, not payload", () => {
+  withFixture((root) => {
+    write(
+      root,
+      "site/dist/index.html",
+      '<!doctype html><title>Home</title><a href="/other/index.html">Other</a>\n'
+    );
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+
+test("a quoted CSS url may contain a parenthesis", () => {
+  withFixture((root) => {
+    write(root, "site/dist/assets/hero(1).webp", randomBytes(2 * 1024));
+    write(
+      root,
+      "site/dist/assets/styles.css",
+      ':root{color:#1b2a24}.h{background:url("/assets/hero(1).webp")}\n'
+    );
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /references an unbudgeted asset: assets\/hero\(1\)\.webp/);
+  });
+});
+
 test("media a shared stylesheet pulls in must be budgeted", () => {
   /* The browser fetches a CSS background on every page, and an HTML-only scan
      never sees it. */

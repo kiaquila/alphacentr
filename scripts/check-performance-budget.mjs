@@ -79,14 +79,19 @@ function assetPath(raw, baseDirectory) {
   return parts.join("/");
 }
 
-function referencedMediaBytes(html, sizes, shared) {
+function referencedMediaBytes(html, sizes, shared, pageDirectory) {
   let total = 0;
   const seen = new Set();
+  /* Count anything the build actually wrote, wherever it sits — a page-local
+     image resolves beside its page, not under assets/. Documents are excluded:
+     a link to another page is navigation, not a fetch. Shared assets are
+     excluded because they are budgeted once, separately. */
   const add = (raw) => {
-    const asset = assetPath(raw, "");
-    if (!asset || !asset.startsWith("assets/") || seen.has(asset) || shared.has(asset)) return;
+    const asset = assetPath(raw, pageDirectory);
+    if (!asset || asset.endsWith(".html") || seen.has(asset) || shared.has(asset)) return;
+    if (!sizes.has(asset)) return;
     seen.add(asset);
-    total += sizes.get(asset) ?? 0;
+    total += sizes.get(asset);
   };
   /* One matcher for every fetch-producing attribute. HTML allows exactly three
      attribute-value forms — double-quoted, single-quoted, and unquoted (no
@@ -133,7 +138,12 @@ function checkPageFamilies(families, output, files, shared, report) {
       const html = readFileSync(join(output, page));
       const measured = gzipBytes(html);
       if (measured > heaviest.gzip) heaviest = { page, gzip: measured };
-      const bytes = referencedMediaBytes(html.toString("utf8"), sizes, shared);
+      const bytes = referencedMediaBytes(
+        html.toString("utf8"),
+        sizes,
+        shared,
+        page.split("/").slice(0, -1).join("/")
+      );
       if (bytes > media.bytes) media = { page, bytes };
     }
     if (count === 0) {
@@ -175,8 +185,12 @@ function checkStylesheetMedia(assets, output, files) {
   for (const stylesheet of [...listed].filter((file) => file.endsWith(".css"))) {
     const directory = stylesheet.split("/").slice(0, -1).join("/");
     const css = readFileSync(join(output, stylesheet), "utf8");
-    for (const match of css.matchAll(/url\(\s*([^)]+?)\s*\)/g)) {
-      const asset = assetPath(match[1], directory);
+    /* CSS spells a url() value three ways — double-quoted, single-quoted, or
+       unquoted (no parentheses, whitespace or quotes) — so a quoted URL may
+       legitimately contain `)`. Terminating at the first one truncated it. */
+    for (const match of css.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s"']*))\s*\)/g)) {
+      const [, doubleQuoted, singleQuoted, unquoted] = match;
+      const asset = assetPath(doubleQuoted ?? singleQuoted ?? unquoted ?? "", directory);
       if (!asset || !present.has(asset) || listed.has(asset)) continue;
       failures.push(`${stylesheet} references an unbudgeted asset: ${asset}`);
     }
