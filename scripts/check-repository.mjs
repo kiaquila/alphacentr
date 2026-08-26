@@ -91,6 +91,24 @@ const UNREADABLE_YAML = [
   [/^[ \t]*-[ \t]+[&*][A-Za-z_][\w-]*(?=[ \t]|$)/m, "a YAML anchor or alias"]
 ];
 
+/* YAML starts a comment at a `#` that begins the line or follows whitespace,
+   unless it sits inside a quoted scalar. Cutting one off naively would let
+   `project-ci: # note: |` read as a block-scalar header. */
+function stripComment(line) {
+  let quote = null;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (quote) {
+      if (character === "\\" && quote === '"') index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+    else if (character === "#" && (index === 0 || /\s/.test(line[index - 1]))) return line.slice(0, index);
+  }
+  return line;
+}
+
 /* Lines inside a block scalar (`|` or `>`) are literal text, not YAML
    structure: a `run:` script may legitimately start a line with `[`, contain
    braces, or use a backslash. The structural rules therefore read the document
@@ -106,10 +124,10 @@ function structuralText(text) {
       blockIndent = null;
     }
     kept.push(line);
-    /* A comment is not a mapping value, so ` # note: |` opens no block scalar.
-       Treating one as a header would hide every more-indented line below it. */
-    if (line.trim().startsWith("#")) continue;
-    if (/:[ \t]*[|>][+-]?\d*[ \t]*(?:#.*)?$/.test(line)) blockIndent = indent;
+    /* Detect the header on the line's real content: a comment is not a mapping
+       value, whether it is the whole line or trails one, and treating it as a
+       header would hide every more-indented line below it. */
+    if (/:[ \t]*[|>][+-]?\d*[ \t]*$/.test(stripComment(line))) blockIndent = indent;
   }
   return kept.join("\n");
 }
@@ -142,7 +160,7 @@ function permissionFailures(text) {
     const declaration = line.match(PERMISSIONS_KEY);
     if (!declaration) continue;
     const [, indent, rest] = declaration;
-    const inline = rest.replace(/\s#.*$/, "").trim();
+    const inline = stripComment(rest).trim();
 
     if (inline) {
       const value = unquote(inline);
@@ -158,9 +176,9 @@ function permissionFailures(text) {
     }
 
     for (const nested of lines.slice(index + 1)) {
-      if (!nested.trim() || nested.trim().startsWith("#")) continue;
+      if (!stripComment(nested).trim()) continue;
       if (nested.match(/^[ \t]*/)[0].length <= indent.length) break;
-      checkEntry(nested.replace(/\s#.*$/, ""));
+      checkEntry(stripComment(nested));
     }
   }
   return failures;

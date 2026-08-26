@@ -344,17 +344,37 @@ test("block scalars may contain shell that looks like YAML", () => {
 });
 
 test("a comment cannot fake a block-scalar header", () => {
-  /* ` # looks-like-block: |` is a comment, not a mapping value. Treating it as
-     a block header would hide every more-indented line from the guard. */
+  /* A comment is not a mapping value, whether it is the whole line or trails
+     one. Reading either as a block header would hide the job body below it. */
+  for (const fake of [
+    ["jobs:", "jobs:\n  # looks-like-block: |"],
+    ["  project-ci:", "  project-ci: # looks-like-block: |"],
+    ["  project-ci:", '  project-ci: # a "quoted # hash" and: |']
+  ]) {
+    withFixture((root) => {
+      const path = join(root, ".github/workflows/ci.yml");
+      const workflow = readFileSync(path, "utf8")
+        .replace(fake[0], fake[1])
+        .replace("    runs-on: ubuntu-latest", "    permissions: write-all\n    runs-on: ubuntu-latest");
+      writeFileSync(path, workflow);
+      const result = run(root, "check-repository.mjs");
+      assert.equal(result.status, 1, `accepted fake header: ${fake[1]}`);
+      assert.match(result.stderr, /may not grant write permissions/);
+    });
+  }
+});
+
+test("a real block scalar with a trailing comment still hides its body", () => {
+  /* The converse: `run: | # note` is a genuine header, so the shell below it
+     must not be read as YAML structure. */
   withFixture((root) => {
     const path = join(root, ".github/workflows/ci.yml");
+    const script = "      - name: Shell\n        run: | # inline note\n          [ -f package.json ] && echo ok";
     const workflow = readFileSync(path, "utf8")
-      .replace("jobs:", "jobs:\n  # looks-like-block: |")
-      .replace("    runs-on: ubuntu-latest", "    permissions: write-all\n    runs-on: ubuntu-latest");
+      .replace("      - name: Setup Node", `${script}\n      - name: Setup Node`);
     writeFileSync(path, workflow);
     const result = run(root, "check-repository.mjs");
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /may not grant write permissions/);
+    assert.equal(result.status, 0, result.stderr);
   });
 });
 
