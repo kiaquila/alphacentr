@@ -53,11 +53,38 @@ function overBudget(label, measured, limit) {
    real weight unmeasured while the per-file ceiling saw nothing wrong with any
    single image. Shared assets are excluded because they are budgeted once,
    separately — a visitor fetches them on the first page and reuses them. */
+/* Resolve a referenced URL to the path the build actually wrote. A query or
+   fragment is part of the request but not of the file name, and a relative URL
+   is resolved against the document that carries it, so both are normalised
+   away before any size lookup — otherwise the lookup misses and the bytes are
+   silently counted as zero. External and data URLs are not our payload. */
+function assetPath(raw, baseDirectory) {
+  const trimmed = raw.trim().replace(/^["']|["']$/g, "");
+  if (!trimmed || trimmed.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return null;
+  const withoutQuery = trimmed.split(/[?#]/)[0];
+  if (!withoutQuery) return null;
+  let decoded = withoutQuery;
+  try {
+    decoded = decodeURIComponent(withoutQuery);
+  } catch {
+    /* A malformed escape is not a path we can resolve; keep the raw text. */
+  }
+  const combined = decoded.startsWith("/") ? decoded : `${baseDirectory}/${decoded}`;
+  const parts = [];
+  for (const part of combined.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return parts.join("/");
+}
+
 function referencedMediaBytes(html, sizes, shared) {
   let total = 0;
   const seen = new Set();
-  const add = (asset) => {
-    if (!asset.startsWith("assets/") || seen.has(asset) || shared.has(asset)) return;
+  const add = (raw) => {
+    const asset = assetPath(raw, "");
+    if (!asset || !asset.startsWith("assets/") || seen.has(asset) || shared.has(asset)) return;
     seen.add(asset);
     total += sizes.get(asset) ?? 0;
   };
@@ -75,9 +102,7 @@ function referencedMediaBytes(html, sizes, shared) {
     const urls = attribute === "srcset"
       ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
       : [value.trim()];
-    for (const url of urls) {
-      if (url.startsWith("/")) add(url.slice(1));
-    }
+    for (const url of urls) add(url);
   }
   return total;
 }
@@ -138,6 +163,25 @@ function checkUnbudgetedShared(assets, output, files) {
     .map((file) => relative(output, file).split(sep).join("/"))
     .filter((file) => extensions.has(extname(file).toLowerCase()) && !listed.has(file))
     .map((file) => `Shared asset is not budgeted: ${file}`);
+}
+
+/* A shared stylesheet fetches its own media — `url("…")` backgrounds and
+   fonts — on every page, and an HTML-only scan never sees them. Anything a
+   shared stylesheet pulls in must therefore be a budgeted shared asset itself. */
+function checkStylesheetMedia(assets, output, files) {
+  const listed = new Set(assets.flatMap((asset) => asset.files));
+  const present = new Set(files.map((file) => relative(output, file).split(sep).join("/")));
+  const failures = [];
+  for (const stylesheet of [...listed].filter((file) => file.endsWith(".css"))) {
+    const directory = stylesheet.split("/").slice(0, -1).join("/");
+    const css = readFileSync(join(output, stylesheet), "utf8");
+    for (const match of css.matchAll(/url\(\s*([^)]+?)\s*\)/g)) {
+      const asset = assetPath(match[1], directory);
+      if (!asset || !present.has(asset) || listed.has(asset)) continue;
+      failures.push(`${stylesheet} references an unbudgeted asset: ${asset}`);
+    }
+  }
+  return failures;
 }
 
 function checkSharedAssets(assets, output, report) {
@@ -204,6 +248,7 @@ export function checkPerformance(root) {
   report.push("Shared assets loaded by every page:");
   failures.push(...checkSharedAssets(performance.sharedAssets, output, report));
   failures.push(...checkUnbudgetedShared(performance.sharedAssets, output, files));
+  failures.push(...checkStylesheetMedia(performance.sharedAssets, output, files));
   report.push("Per-file ceilings:");
   failures.push(...checkPerFileLimits(performance.perFileLimits, files, output, report));
 
