@@ -271,6 +271,22 @@ test("images a page references count against its family budget", () => {
   });
 });
 
+test("srcset candidates count toward the media budget", () => {
+  /* The browser fetches a srcset candidate, so scanning only src and href
+     would let a responsive image ship unmeasured. */
+  withFixture((root) => {
+    write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
+    write(
+      root,
+      "site/dist/index.html",
+      '<!doctype html><title>Home</title><img srcset="/assets/media/wide.webp 2x" />\n'
+    );
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Media of home \(index\.html\): \d+ B exceeds 4096 B/);
+  });
+});
+
 test("a page no family covers is reported", () => {
   withFixture((root) => {
     write(root, "site/dist/stray.html", "<!doctype html><title>Stray</title>\n");
@@ -434,6 +450,19 @@ test("a dangling symlink is still rejected", () => {
     assert.equal(result.status, 1);
     assert.match(result.stderr, /Symbolic links are not allowed: dangling\.txt/);
   });
+});
+
+test("npm config may not replace the script shell", () => {
+  /* `script-shell` would redirect `npm run preflight` before the guard runs. */
+  for (const setting of ["script-shell=./evil.sh", "ignore-scripts=false", "unsafe-perm=true"]) {
+    withFixture((root) => {
+      write(root, ".npmrc", `${setting}\n`);
+      spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
+      const result = run(root, "check-repository.mjs");
+      assert.equal(result.status, 1, `accepted ${setting}`);
+      assert.match(result.stderr, /\.npmrc may not set/);
+    });
+  }
 });
 
 test("tracked build output and secrets are rejected", () => {

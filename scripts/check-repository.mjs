@@ -237,6 +237,18 @@ if (existsSync(codeowners) && readFileSync(codeowners, "utf8").includes("replace
 
 const files = listTrackedFiles();
 for (const file of files) checkFileContents(file);
+
+/* npm config can replace the shell that runs the package scripts, so a tracked
+   .npmrc could redirect `npm run preflight` before the guard ever starts.
+   CODEOWNERS puts these files behind review; this refuses the setting outright. */
+for (const npmrc of files.filter((file) => /(?:^|\/)\.npmrc$/.test(file))) {
+  const text = readFileSync(join(root, npmrc), "utf8");
+  for (const setting of ["script-shell", "ignore-scripts", "unsafe-perm"]) {
+    if (new RegExp(`^\\s*${setting}\\s*=`, "m").test(text)) {
+      failures.push(`${npmrc} may not set ${setting}`);
+    }
+  }
+}
 for (const workflow of files.filter((file) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(file))) {
   checkWorkflow(workflow);
 }

@@ -56,11 +56,20 @@ function overBudget(label, measured, limit) {
 function referencedMediaBytes(html, sizes, shared) {
   let total = 0;
   const seen = new Set();
-  for (const match of html.matchAll(/(?:src|href)="\/(assets\/[^"]+)"/g)) {
-    const asset = match[1];
-    if (seen.has(asset) || shared.has(asset)) continue;
+  const add = (asset) => {
+    if (!asset.startsWith("assets/") || seen.has(asset) || shared.has(asset)) return;
     seen.add(asset);
     total += sizes.get(asset) ?? 0;
+  };
+  for (const match of html.matchAll(/(?:src|href|poster)="\/([^"]+)"/g)) add(match[1]);
+  /* A srcset lists candidates as `url descriptor, url descriptor`; the browser
+     fetches one of them, so every candidate counts toward what the page can
+     cost. */
+  for (const match of html.matchAll(/srcset="([^"]+)"/g)) {
+    for (const candidate of match[1].split(",")) {
+      const url = candidate.trim().split(/\s+/)[0];
+      if (url.startsWith("/")) add(url.slice(1));
+    }
   }
   return total;
 }

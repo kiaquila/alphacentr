@@ -9,3 +9,6 @@
 /package.json @kiaquila
 /package-lock.json @kiaquila
 /site/package.json @kiaquila
+# npm config can replace the shell that runs those scripts.
+/.npmrc @kiaquila
+/site/.npmrc @kiaquila
