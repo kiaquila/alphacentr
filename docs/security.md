@@ -32,24 +32,38 @@ Each rule fails closed: a permission value that is not recognisably read-only
 is rejected rather than assumed safe, and a workflow that does not parse is
 rejected outright.
 
-## What the guard cannot enforce, and what backs it
+## What the guard cannot enforce
 
 A `pull_request` run evaluates the candidate ref's copy of `ci.yml`, so a branch
 supplies the workflow that checks it. No rule written inside that file can bind
 it — the branch owns the rule too. This is why `workflow_dispatch`,
-`workflow_run` and `pull_request_target` are refused outright, but `pull_request`
-itself has to stay: without it there is no pull-request validation at all.
+`workflow_run` and `pull_request_target` are refused outright, but
+`pull_request` itself has to stay: without it there is no pull-request
+validation at all.
 
-What actually binds is repository configuration, outside any branch's reach.
-The state this repository relies on, verified via the API:
+Be precise about what does and does not constrain that. The repository's
+default workflow permissions are set to `read`, but **that is a default, not a
+ceiling**: GitHub's rule is that anyone with write access can modify the
+permissions granted to `GITHUB_TOKEN`, adding or removing access, by editing
+the `permissions` key in the workflow file. The automatic downgrade to a
+read-only token applies to pull requests **from forks**, not from branches of
+this repository. So a same-repository branch can grant its own copy of the
+workflow a write token, and the guard cannot stop it.
 
-| Setting | Value | Why it matters |
+What genuinely limits the exposure here:
+
+| Fact | Value | What it means |
 | --- | --- | --- |
-| Default workflow permissions | `read` | A branch's copy cannot obtain a write token however it spells `permissions:` |
-| Allow GitHub Actions to approve pull requests | off | A workflow cannot approve its own pull request |
 | Actions secrets | none | There is no credential for a candidate branch to read |
 | Environments | none | No environment secret or protection rule to subvert |
+| Actions may approve pull requests | off | A workflow cannot approve its own pull request |
+| Push access | collaborators only | The people who can open a same-repository branch are already trusted |
 
-Keep those settings as they are. The guard's workflow rules are a fast, local
-signal that a change is heading the wrong way; they are not the boundary, and
-they should not be described as one.
+The real boundary is therefore who holds push access, plus review before merge —
+not anything in this file or in `ci.yml`. Two settings worth having and not yet
+configured: branch protection on `main` requiring review and the `project-ci`
+and `osv-scan` checks, and keeping the default workflow permissions at `read` so
+an unmodified workflow starts with the least it needs.
+
+The guard's workflow rules are a fast, local signal that a change is heading the
+wrong way. They are not the boundary and should not be described as one.
