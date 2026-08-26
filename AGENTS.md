@@ -52,6 +52,7 @@
 Из корня репозитория — ровно то, что запускает CI:
 
 ```bash
+npm ci --ignore-scripts                 # один раз, зависимости harness (yaml)
 npm ci --ignore-scripts --prefix site   # один раз, зависимости сайта
 npm run preflight                       # guard, тесты harness, сборка и тесты
                                         # сайта, бюджет веса страниц

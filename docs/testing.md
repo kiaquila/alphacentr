@@ -2,7 +2,16 @@
 
 ## Checks
 
-`npm run preflight` runs, in order, exactly what the `project-ci` workflow runs:
+From a fresh checkout, install both lockfiles once — the root one carries the
+`yaml` parser the guard uses, the `site` one carries the build:
+
+```bash
+npm ci --ignore-scripts
+npm ci --ignore-scripts --prefix site
+```
+
+`npm run preflight` then runs, in order, exactly what the `project-ci` workflow
+runs:
 
 | Step | Command | What it covers |
 | --- | --- | --- |
