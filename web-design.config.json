@@ -143,6 +143,17 @@
         ],
         "measuredRawBytes": 67176,
         "rawBytes": 73728
+      },
+      {
+        "name": "logo and favicon",
+        "files": [
+          "assets/favicon.svg",
+          "assets/logo-mark.svg"
+        ],
+        "measuredGzipBytes": 11502,
+        "gzipBytes": 13312,
+        "measuredRawBytes": 29190,
+        "rawBytes": 32768
       }
     ],
     "perFileLimits": [

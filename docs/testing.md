@@ -91,6 +91,12 @@ pass.
 | stylesheet `assets/styles.css` | 6 815 B gzip | 8 192 B |
 | client script `assets/nav.js` | 801 B gzip | 1 024 B |
 | web fonts, both Inter subsets | 67 176 B raw | 73 728 B |
+| logo and favicon, both SVGs | 11 502 B gzip / 29 190 B raw | 13 312 B / 32 768 B |
+
+Any file whose extension one of these uses must itself be listed here, so a new
+page-wide stylesheet, script, font or vector cannot ship unmeasured — the
+extension allow-list would otherwise accept it while the page budget saw only
+its `<link>` tag.
 
 | Per-file ceiling | Largest measured | Budget |
 | --- | ---: | ---: |
