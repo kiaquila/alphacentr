@@ -195,6 +195,14 @@
         "measuredMaxRawBytes": 14595,
         "maxRawBytes": 16384
       }
+    ],
+    "unreferencedMedia": [
+      "assets/media/articles/stati__gipnoterapiya_trevogi__panicheskie_ataki_panika_i_agorafobiya.webp",
+      "assets/media/articles/stati__gipnoterapiya_trevogi__trevoga_s_tochki_zreniya_psikhologii.webp",
+      "assets/media/articles/stati__gipnoterapiya_trevogi__trevozhnost_vidy_trevogi.webp",
+      "assets/media/articles/stati__gipnoz_dlya_snyatiya_stressa__upravlenie_stressom.webp",
+      "assets/media/articles/stati__lechenie_depressii_gipnozom__antidepressanty.webp",
+      "assets/media/articles/stati__lechenie_depressii_gipnozom__depressiya_chto_eto_simptomy_i_priznaki_depressii.webp"
     ]
   }
 }

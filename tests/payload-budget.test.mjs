@@ -118,6 +118,8 @@ test("media counts however the attribute is spelled", () => {
     '<img src="assets/media/wide.webp" />',
     /* HTML attribute names are case-insensitive. */
     '<IMG SRC="/assets/media/wide.webp" />',
+    /* Character references are resolved before the URL is used. */
+    '<img src="/assets/media/wide&#46;webp" />',
     '<img SrcSet="/assets/media/wide.webp 2x" />'
   ]) {
     withFixture((root) => {
@@ -183,6 +185,51 @@ test("a quoted CSS url may contain a parenthesis", () => {
     const result = run(root, "check-performance-budget.mjs");
     assert.equal(result.status, 1);
     assert.match(result.stderr, /references an unbudgeted asset: assets\/hero\(1\)\.webp/);
+  });
+});
+
+test("an image no page can be seen to reference fails loudly", () => {
+  /* The backstop for the scanner itself: HTML and CSS reference syntax is
+     open-ended, so a spelling this cannot read must fail rather than quietly
+     weigh zero. `data-src` is not fetched by the browser and is not read. */
+  withFixture((root) => {
+    write(root, "site/dist/assets/media/orphan.webp", randomBytes(1024));
+    write(
+      root,
+      "site/dist/index.html",
+      '<!doctype html><title>Home</title><img data-src="/assets/media/orphan.webp" />\n'
+    );
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /No page references assets\/media\/orphan\.webp/);
+  });
+});
+
+test("media the config records as unreferenced is allowed", () => {
+  withFixture((root) => {
+    write(root, "site/dist/assets/media/orphan.webp", randomBytes(1024));
+    const config = readConfig(root);
+    config.performance.unreferencedMedia = ["assets/media/cover.webp", "assets/media/orphan.webp"];
+    writeConfig(root, config);
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+
+test("a recorded file that is referenced again must be delisted", () => {
+  withFixture((root) => {
+    write(root, "site/dist/assets/media/cover.webp", randomBytes(512));
+    write(
+      root,
+      "site/dist/index.html",
+      '<!doctype html><title>Home</title><img src="/assets/media/cover.webp" />\n'
+    );
+    const config = readConfig(root);
+    config.performance.unreferencedMedia = ["assets/media/cover.webp"];
+    writeConfig(root, config);
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /is referenced now; remove it from unreferencedMedia/);
   });
 });
 

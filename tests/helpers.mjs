@@ -60,7 +60,8 @@ const FIXTURE_CONFIG = {
     ],
     perFileLimits: [
       { name: "cover image", extension: ".webp", measuredMaxRawBytes: 1024, maxRawBytes: 8192 }
-    ]
+    ],
+    unreferencedMedia: ["assets/media/cover.webp"]
   }
 };
 

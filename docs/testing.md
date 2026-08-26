@@ -65,6 +65,16 @@ So the budget measures what a visit actually costs:
 4. **Per-file ceilings**, so one oversized image fails on its own instead of
    hiding among 362 others.
 
+5. **A reachability backstop.** HTML and CSS reference syntax is open-ended —
+   quoting, escapes, character references, case — so a spelling the scanner
+   cannot read would make a page's images weigh zero, silently, which is the
+   worst failure mode. Every shipped file under `assets/media/` must therefore
+   be discovered by the scan. If a template starts emitting a form the scanner
+   cannot read, its images stop being discovered and the build fails here
+   instead of under-reporting. The six files the site genuinely no longer
+   references are listed in `performance.unreferencedMedia`; a file that
+   becomes referenced again must be removed from that list.
+
 ## Recorded baseline
 
 Measured from `npm --prefix site run build` at the commit that introduced this

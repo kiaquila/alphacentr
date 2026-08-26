@@ -58,6 +58,24 @@ function overBudget(label, measured, limit) {
    is resolved against the document that carries it, so both are normalised
    away before any size lookup — otherwise the lookup misses and the bytes are
    silently counted as zero. External and data URLs are not our payload. */
+/* An attribute value is HTML text: the parser resolves character references
+   before the URL is used, so `wide&#46;webp` fetches `wide.webp`. */
+function decodeEntities(value) {
+  const named = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0" };
+  return value.replace(/&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([a-zA-Z]+));/g, (match, decimal, hex, name) => {
+    if (decimal) return String.fromCodePoint(Number(decimal));
+    if (hex) return String.fromCodePoint(Number.parseInt(hex, 16));
+    return named[name.toLowerCase()] ?? match;
+  });
+}
+
+/* CSS escapes a character as `\` plus up to six hex digits and an optional
+   trailing space, or as `\` plus the character itself. */
+function decodeCssEscapes(value) {
+  return value.replace(/\\(?:([0-9a-fA-F]{1,6})[ \t\n]?|(.))/g, (match, hex, literal) =>
+    (hex ? String.fromCodePoint(Number.parseInt(hex, 16)) : literal));
+}
+
 function assetPath(raw, baseDirectory) {
   const trimmed = raw.trim().replace(/^["']|["']$/g, "");
   if (!trimmed || trimmed.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return null;
@@ -79,7 +97,7 @@ function assetPath(raw, baseDirectory) {
   return parts.join("/");
 }
 
-function referencedMediaBytes(html, sizes, shared, pageDirectory) {
+function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered) {
   let total = 0;
   const seen = new Set();
   /* Count anything the build actually wrote, wherever it sits — a page-local
@@ -91,19 +109,22 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory) {
     if (!asset || asset.endsWith(".html") || seen.has(asset) || shared.has(asset)) return;
     if (!sizes.has(asset)) return;
     seen.add(asset);
+    discovered?.add(asset);
     total += sizes.get(asset);
   };
-  /* One matcher for every fetch-producing attribute. HTML allows exactly three
+  /* One matcher for every fetch-producing attribute. The name must start an
+     attribute — preceded by whitespace, a quote or a slash — so `data-src`,
+     which the browser does not fetch, is not read as `src`. HTML allows exactly three
      attribute-value forms — double-quoted, single-quoted, and unquoted (no
      whitespace, quotes, =, <, > or backtick) — so covering all three is
      complete rather than another guess at a spelling. A srcset lists candidates
      as `url descriptor, url descriptor`; the browser fetches one of them, so
      every candidate counts toward what the page can cost. */
   for (const match of html.matchAll(
-    /\b(src|href|poster|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
+    /(?:^|[\s"'\/])(src|href|poster|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
   )) {
     const [, attribute, doubleQuoted, singleQuoted, unquoted] = match;
-    const value = doubleQuoted ?? singleQuoted ?? unquoted ?? "";
+    const value = decodeEntities(doubleQuoted ?? singleQuoted ?? unquoted ?? "");
     const urls = attribute.toLowerCase() === "srcset"
       ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
       : [value.trim()];
@@ -112,7 +133,7 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory) {
   return total;
 }
 
-function checkPageFamilies(families, output, files, shared, report) {
+function checkPageFamilies(families, output, files, shared, discovered, report) {
   const failures = [];
   const pages = files
     .filter((file) => file.endsWith(".html"))
@@ -142,7 +163,8 @@ function checkPageFamilies(families, output, files, shared, report) {
         html.toString("utf8"),
         sizes,
         shared,
-        page.split("/").slice(0, -1).join("/")
+        page.split("/").slice(0, -1).join("/"),
+        discovered
       );
       if (bytes > media.bytes) media = { page, bytes };
     }
@@ -191,10 +213,32 @@ function checkStylesheetMedia(assets, output, files) {
        The function name is case-insensitive, as are HTML attribute names. */
     for (const match of css.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s"']*))\s*\)/gi)) {
       const [, doubleQuoted, singleQuoted, unquoted] = match;
-      const asset = assetPath(doubleQuoted ?? singleQuoted ?? unquoted ?? "", directory);
+      const asset = assetPath(decodeCssEscapes(doubleQuoted ?? singleQuoted ?? unquoted ?? ""), directory);
       if (!asset || !present.has(asset) || listed.has(asset)) continue;
       failures.push(`${stylesheet} references an unbudgeted asset: ${asset}`);
     }
+  }
+  return failures;
+}
+
+/* Every shipped image must be discovered by the scan above. This is the
+   backstop for the scan itself: the reference syntaxes of HTML and CSS are
+   open-ended, and a spelling the scanner cannot read would otherwise make a
+   page's images weigh zero — silently, which is the worst failure mode. If a
+   template starts emitting a form this cannot read, its images stop being
+   discovered and the build fails here instead of under-reporting. Files the
+   site genuinely no longer references are listed in the config. */
+function checkMediaReachable(performance, output, files, discovered) {
+  const allowed = new Set(performance.unreferencedMedia ?? []);
+  const shipped = files
+    .map((file) => relative(output, file).split(sep).join("/"))
+    .filter((file) => file.startsWith("assets/media/"));
+  const failures = shipped
+    .filter((file) => !discovered.has(file) && !allowed.has(file))
+    .map((file) => `No page references ${file}, or its reference cannot be read`);
+  for (const file of allowed) {
+    if (discovered.has(file)) failures.push(`${file} is referenced now; remove it from unreferencedMedia`);
+    else if (!shipped.includes(file)) failures.push(`unreferencedMedia lists a missing file: ${file}`);
   }
   return failures;
 }
@@ -259,7 +303,9 @@ export function checkPerformance(root) {
 
   report.push(`Critical HTML, heaviest page of each family (${files.filter((file) => file.endsWith(".html")).length} pages):`);
   const shared = new Set(performance.sharedAssets.flatMap((asset) => asset.files));
-  failures.push(...checkPageFamilies(performance.pageFamilies, output, files, shared, report));
+  const discovered = new Set();
+  failures.push(...checkPageFamilies(performance.pageFamilies, output, files, shared, discovered, report));
+  failures.push(...checkMediaReachable(performance, output, files, discovered));
   report.push("Shared assets loaded by every page:");
   failures.push(...checkSharedAssets(performance.sharedAssets, output, report));
   failures.push(...checkUnbudgetedShared(performance.sharedAssets, output, files));

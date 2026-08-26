@@ -248,6 +248,12 @@ export function validateConfig(config, root) {
     errors.push("performance.allowedExtensions must contain lower-case file extensions");
   }
   errors.push(...validatePageFamilies(performance.pageFamilies, output));
+  /* The exact media files the site no longer references. Recorded as an
+     explicit list rather than a count so adding one is a visible decision. */
+  if (!Array.isArray(performance.unreferencedMedia) ||
+      performance.unreferencedMedia.some((file) => typeof file !== "string" || !file)) {
+    errors.push("performance.unreferencedMedia must list the media files no page references");
+  }
   errors.push(...validateSharedAssets(performance.sharedAssets, output));
   errors.push(...validatePerFileLimits(performance.perFileLimits));
   return errors;
