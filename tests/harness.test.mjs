@@ -278,6 +278,28 @@ test("read-only permission declarations still pass", () => {
   }
 });
 
+test("repository policy rejects YAML the guard does not decode", () => {
+  /* The guard reads raw text, so key syntax whose text and decoded value can
+     differ is refused rather than read approximately. `\\u006e` decodes to `n`,
+     which would otherwise spell `permissions` past a text-only match. */
+  for (const [override, expected] of [
+    ['    "permissio\\u006es": write-all', /escaped double-quoted key/],
+    ["    ? permissions\\n    : write-all", /explicit key/],
+    ["    <<: *defaults", /merge key|anchor or alias/],
+    ["    permissions: &perms write-all", /anchor or alias/]
+  ]) {
+    withFixture((root) => {
+      const path = join(root, ".github/workflows/ci.yml");
+      const workflow = readFileSync(path, "utf8")
+        .replace("    runs-on: ubuntu-latest", `${override.replaceAll("\\n", "\n")}\n    runs-on: ubuntu-latest`);
+      writeFileSync(path, workflow);
+      const result = run(root, "check-repository.mjs");
+      assert.equal(result.status, 1, `accepted undecodable YAML: ${override}`);
+      assert.match(result.stderr, expected);
+    });
+  }
+});
+
 test("repository policy rejects secrets and unsafe triggers", () => {
   withFixture((root) => {
     const path = join(root, ".github/workflows/ci.yml");

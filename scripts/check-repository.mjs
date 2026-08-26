@@ -51,6 +51,24 @@ const PERSONAL_PATHS = [/\/Users\/[A-Za-z0-9._-]+\//, /\/home\/[A-Za-z0-9._-]+\/
 const PERMISSIONS_KEY = /^([ \t]*)(?:permissions|"permissions"|'permissions')[ \t]*:[ \t]*(.*)$/;
 const READ_VALUES = new Set(["read", "none"]);
 
+/* This guard reads raw workflow text rather than a parsed YAML document, which
+   is only sound while the text of a key and its decoded value agree. YAML
+   spells a mapping key in five ways: a plain scalar; a single-quoted scalar,
+   whose only escape is '' and so cannot spell `permissions` as anything else;
+   a double-quoted scalar, which *does* decode escapes, so "permissions"
+   parses as `permissions`; an explicit `? key`; and indirectly through an
+   anchor, alias, or merge key. Only the first two read the same parsed and
+   unparsed, so the other three are refused outright — nothing in a GitHub
+   workflow needs them, and refusing is what keeps the text reading equivalent
+   to the parsed one instead of merely close to it. */
+const UNREADABLE_YAML = [
+  [/^[ \t]*"[^"\n]*\\[^"\n]*"[ \t]*:/m, "an escaped double-quoted key"],
+  [/^[ \t]*\?(?:[ \t]|$)/m, "an explicit key"],
+  [/^[ \t]*(?:<<|"<<"|'<<')[ \t]*:/m, "a merge key"],
+  [/:[ \t]+[&*][A-Za-z_][\w-]*(?=[ \t]|$)/m, "a YAML anchor or alias"],
+  [/^[ \t]*-[ \t]+[&*][A-Za-z_][\w-]*(?=[ \t]|$)/m, "a YAML anchor or alias"]
+];
+
 function unquote(value) {
   const trimmed = value.trim();
   const quoted = trimmed.match(/^(["'])([\s\S]*)\1$/);
@@ -155,8 +173,16 @@ function checkWorkflow(workflow) {
   if (/^\s*workflow_run:/m.test(text)) {
     failures.push(`workflow_run runs privileged against proposed code in ${workflow}`);
   }
-  if (!PERMISSIONS_KEY.test(text.split("\n").find((line) => PERMISSIONS_KEY.test(line) && !/^[ \t]/.test(line)) ?? "")) {
+  const declaresTopLevel = text
+    .split("\n")
+    .some((line) => !/^[ \t]/.test(line) && PERMISSIONS_KEY.test(line));
+  if (!declaresTopLevel) {
     failures.push(`Workflow must declare top-level permissions: ${workflow}`);
+  }
+  for (const [pattern, description] of UNREADABLE_YAML) {
+    if (pattern.test(text)) {
+      failures.push(`Workflow uses ${description}, which this guard does not decode: ${workflow}`);
+    }
   }
   /* Validation runs on proposed code, so a write token anywhere in the file —
      top-level or on any job, which overrides it — would let a branch mint its
