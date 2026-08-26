@@ -63,10 +63,16 @@
         "gzipBytes": 47104
       },
       {
-        "name": "author page",
+        "name": "author landing",
         "file": "avtor/index.html",
         "measuredGzipBytes": 4488,
         "gzipBytes": 5632
+      },
+      {
+        "name": "author page (largest)",
+        "file": "avtor/obo-mne/index.html",
+        "measuredGzipBytes": 10284,
+        "gzipBytes": 11776
       },
       {
         "name": "testimonials (largest listing)",

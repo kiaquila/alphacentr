@@ -30,11 +30,14 @@ all HTML and images does not describe what anybody downloads.
 
 So the budget measures what a visit actually costs:
 
-1. **Critical HTML per representative page.** One route per page family produced
-   by `site/src/routes.mjs` — home, catalogue, article, author, info — taking the
-   heaviest member of each family so the limit binds. The site loads CSS and JS
-   as separate files, so a page's critical payload is its HTML document, and it
-   is measured gzipped because that is how it is served.
+1. **Critical HTML per representative page.** For each page family produced by
+   `site/src/routes.mjs` — home, catalogue, article, author, info — the budget
+   covers the **heaviest member of that family**, so the limit actually binds,
+   plus the index or landing page visitors usually arrive on. The heaviest
+   member is found by enumerating every route the family's module returns and
+   measuring all of them, not by guessing from the URL shape. The site loads CSS
+   and JS as separate files, so a page's critical payload is its HTML document,
+   and it is measured gzipped because that is how it is served.
 2. **Shared assets**, budgeted separately because they are fetched once and then
    reused across all 828 routes.
 3. **Per-file ceilings**, so one oversized image fails on its own instead of
@@ -55,9 +58,14 @@ budget. Every limit is stored beside the measurement it came from, and
 | articles index | `articles.mjs` | 5 077 B | 6 144 B |
 | article section (largest) | `articles.mjs` | 9 816 B | 11 264 B |
 | article page (largest) | `articles.mjs` | 42 329 B | 47 104 B |
-| author page | `author.mjs` | 4 488 B | 5 632 B |
+| author landing | `author.mjs` | 4 488 B | 5 632 B |
+| author page (largest) | `author.mjs` | 10 284 B | 11 776 B |
 | testimonials (largest listing) | `info.mjs` | 32 122 B | 36 864 B |
 | FAQ | `info.mjs` | 17 891 B | 20 480 B |
+
+`/otzyvy/` is the heaviest route `info.mjs` produces; `/info/` is within 2 bytes
+of the FAQ entry, so FAQ stands for that shape. `/catalog/…/552/` and the
+Bekhterev article are the heaviest members of their families.
 
 | Shared asset | Measured | Budget |
 | --- | ---: | ---: |
@@ -70,9 +78,12 @@ budget. Every limit is stored beside the measurement it came from, and
 | cover image (`.webp`) | 321 644 B raw | 358 400 B |
 | vector asset (`.svg`) | 14 595 B raw | 16 384 B |
 
-Headroom is 12–20 % — enough to absorb ordinary copy edits, small enough that a
-new stylesheet layer, an unoptimised image, or a runaway listing page trips the
-check. For context, the whole-site distribution is 4.0 KB minimum, 7.9 KB median,
+Headroom is 12–25 % — enough to absorb ordinary copy edits and the ~1 % gzip
+difference between zlib builds (the numbers above are from macOS; CI on Linux
+measures slightly higher), small enough that a new stylesheet layer, an
+unoptimised image, or a runaway listing page trips the check.
+
+For context, the whole-site distribution is 4.0 KB minimum, 7.9 KB median, and
 11.6 KB at the 90th percentile, so the two large outliers above — a long book
 article and the 84-item testimonials page — are budgeted as the deliberate
 exceptions they are, not used to set a ceiling for everything else.

@@ -112,8 +112,15 @@ function checkWorkflow(workflow) {
   if (!/^permissions:\s*(?:\n|$)/m.test(text)) {
     failures.push(`Workflow must declare top-level permissions: ${workflow}`);
   }
-  if (/^permissions:\s*["']?write-all["']?\s*$/m.test(text)) {
-    failures.push(`Workflow may not use write-all: ${workflow}`);
+  /* A job-level `permissions:` overrides the top-level one, so every
+     declaration is checked at any indentation, in both the inline form
+     (`permissions: write-all`, `permissions: {contents: write}`) and the
+     nested block form handled by the scope loop below. */
+  for (const match of text.matchAll(/^[ \t]*permissions:[ \t]*(.*)$/gm)) {
+    const inline = match[1].replace(/#.*$/, "").trim();
+    if (inline && /\bwrite(?:-all)?\b/.test(inline)) {
+      failures.push(`Workflow may not grant write permissions: ${workflow}`);
+    }
   }
   for (const match of text.matchAll(/^\s*(?:[a-z-]+|["'][a-z-]+["']):\s*write\s*(?:#.*)?$/gm)) {
     const scope = match[0].trim().split(":")[0].replaceAll(/["']/g, "");

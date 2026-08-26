@@ -220,6 +220,27 @@ test("repository policy rejects a write-capable workflow", () => {
   });
 });
 
+test("repository policy rejects job-level permission overrides", () => {
+  /* A job-level `permissions:` overrides the top-level grant, so checking only
+     the column-zero declaration would let a job become write-capable while the
+     file still reads `permissions: contents: read` at the top. */
+  for (const [override, expected] of [
+    ["    permissions: write-all", /may not grant write permissions/],
+    ["    permissions: {contents: write}", /may not grant write permissions/],
+    ["    permissions:\n      contents: write", /may not grant contents: write/]
+  ]) {
+    withFixture((root) => {
+      const path = join(root, ".github/workflows/ci.yml");
+      const workflow = readFileSync(path, "utf8")
+        .replace("    runs-on: ubuntu-latest", `${override}\n    runs-on: ubuntu-latest`);
+      writeFileSync(path, workflow);
+      const result = run(root, "check-repository.mjs");
+      assert.equal(result.status, 1, `accepted job override: ${override}`);
+      assert.match(result.stderr, expected);
+    });
+  }
+});
+
 test("repository policy rejects secrets and unsafe triggers", () => {
   withFixture((root) => {
     const path = join(root, ".github/workflows/ci.yml");
