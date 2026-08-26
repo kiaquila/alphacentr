@@ -276,7 +276,9 @@ test("media pulled in by a page's own CSS counts against that page", () => {
   for (const markup of [
     '<style>.h{background:url(/assets/media/wide.webp)}</style>',
     '<div style="background:url(/assets/media/wide.webp)"></div>',
-    "<div style='background:url(\"/assets/media/wide.webp\")'></div>"
+    "<div style='background:url(\"/assets/media/wide.webp\")'></div>",
+    /* HTML's third attribute-value form applies to style as well. */
+    "<div style=background:url(/assets/media/wide.webp)></div>"
   ]) {
     withFixture((root) => {
       write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));

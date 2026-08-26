@@ -215,9 +215,9 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
      to the shared stylesheet. */
   for (const block of [
     ...live.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi),
-    ...live.matchAll(/(?:^|[\s"'\/])style\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)
+    ...live.matchAll(/(?:^|[\s"'\/])style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi)
   ]) {
-    for (const url of cssUrls(block[1] ?? block[2] ?? "")) {
+    for (const url of cssUrls(block[1] ?? block[2] ?? block[3] ?? "")) {
       add(decodeCssEscapes(decodeEntities(url)), true);
     }
   }
