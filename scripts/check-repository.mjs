@@ -93,7 +93,12 @@ const UNREADABLE_YAML = [
 
 /* YAML starts a comment at a `#` that begins the line or follows whitespace,
    unless it sits inside a quoted scalar. Cutting one off naively would let
-   `project-ci: # note: |` read as a block-scalar header. */
+   `project-ci: # note: |` read as a block-scalar header.
+
+   A quote only opens a scalar where a scalar can begin — at the start of the
+   line or after whitespace or a flow punctuation character. Elsewhere it is an
+   ordinary character in a plain scalar, as in `name: Alpha's action`, and
+   treating it as a delimiter would swallow the rest of the line. */
 function stripComment(line) {
   let quote = null;
   for (let index = 0; index < line.length; index += 1) {
@@ -103,8 +108,12 @@ function stripComment(line) {
       else if (character === quote) quote = null;
       continue;
     }
-    if (character === '"' || character === "'") quote = character;
-    else if (character === "#" && (index === 0 || /\s/.test(line[index - 1]))) return line.slice(0, index);
+    const previous = index === 0 ? "" : line[index - 1];
+    if ((character === '"' || character === "'") && (index === 0 || /[\s:,[{-]/.test(previous))) {
+      quote = character;
+    } else if (character === "#" && (index === 0 || /\s/.test(previous))) {
+      return line.slice(0, index);
+    }
   }
   return line;
 }

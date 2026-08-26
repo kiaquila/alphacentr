@@ -349,7 +349,9 @@ test("a comment cannot fake a block-scalar header", () => {
   for (const fake of [
     ["jobs:", "jobs:\n  # looks-like-block: |"],
     ["  project-ci:", "  project-ci: # looks-like-block: |"],
-    ["  project-ci:", '  project-ci: # a "quoted # hash" and: |']
+    ["  project-ci:", '  project-ci: # a "quoted # hash" and: |'],
+    /* An apostrophe inside a plain scalar is not a quote delimiter. */
+    ["      - name: Checkout", "      - name: Alpha's checkout # looks-like-block: |"]
   ]) {
     withFixture((root) => {
       const path = join(root, ".github/workflows/ci.yml");
