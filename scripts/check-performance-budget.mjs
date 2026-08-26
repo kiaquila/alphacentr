@@ -243,7 +243,8 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
   }
   /* A <style> block's contents are CSS, fetched exactly like an <img> and
      belonging to this page rather than to the shared stylesheet. */
-  for (const block of live.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) {
+  const STYLE_BLOCK = new RegExp(`<style\\b${ATTRIBUTE_RUN}>([\\s\\S]*?)</style\\s*>`, "gi");
+  for (const block of live.matchAll(STYLE_BLOCK)) {
     for (const url of cssUrls(block[1] ?? "")) {
       add(decodeCssEscapes(decodeEntities(url)), true);
     }

@@ -274,7 +274,7 @@ test("media pulled in by a page's own CSS counts against that page", () => {
   /* A <style> block or style attribute fetches exactly like an <img>, and the
      bytes belong to the page that carries it. */
   for (const markup of [
-    '<style>.h{background:url(/assets/media/wide.webp)}</style>',
+    '<style media="all">.h{background:url(/assets/media/wide.webp)}</style>',
     '<div style="background:url(/assets/media/wide.webp)"></div>',
     "<div style='background:url(\"/assets/media/wide.webp\")'></div>",
     /* HTML's third attribute-value form applies to style as well. */
@@ -374,7 +374,10 @@ test("metadata and commented-out CSS are not fetched", () => {
     "<code>src=/assets/media/wide.webp</code>",
     /* Raw-text element contents are data, not markup. */
     '<script type="application/ld+json">{"x":"<img src=\'/assets/media/wide.webp\'>"}</script>',
-    "<textarea><img src=\"/assets/media/wide.webp\"></textarea>"
+    "<textarea><img src=\"/assets/media/wide.webp\"></textarea>",
+    /* A quoted `>` in a <style> start tag must not turn the rest of that
+       attribute value into live CSS. */
+    '<style data-label=">background:url(/assets/media/wide.webp)"></style>'
   ]) {
     withFixture((root) => {
       write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
