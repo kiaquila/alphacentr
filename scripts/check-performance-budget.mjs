@@ -61,14 +61,17 @@ function referencedMediaBytes(html, sizes, shared) {
     seen.add(asset);
     total += sizes.get(asset) ?? 0;
   };
-  /* One matcher for every fetch-producing attribute, in either quote style, so
-     a spelling change in the templates cannot silently drop media from the
-     total. A srcset lists candidates as `url descriptor, url descriptor`; the
-     browser fetches one of them, so every candidate counts toward what the
-     page can cost. */
-  for (const match of html.matchAll(/\b(src|href|poster|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
-    const [, attribute, doubleQuoted, singleQuoted] = match;
-    const value = doubleQuoted ?? singleQuoted ?? "";
+  /* One matcher for every fetch-producing attribute. HTML allows exactly three
+     attribute-value forms — double-quoted, single-quoted, and unquoted (no
+     whitespace, quotes, =, <, > or backtick) — so covering all three is
+     complete rather than another guess at a spelling. A srcset lists candidates
+     as `url descriptor, url descriptor`; the browser fetches one of them, so
+     every candidate counts toward what the page can cost. */
+  for (const match of html.matchAll(
+    /\b(src|href|poster|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g
+  )) {
+    const [, attribute, doubleQuoted, singleQuoted, unquoted] = match;
+    const value = doubleQuoted ?? singleQuoted ?? unquoted ?? "";
     const urls = attribute === "srcset"
       ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
       : [value.trim()];

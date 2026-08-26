@@ -280,7 +280,10 @@ test("media counts however the attribute is spelled", () => {
     '<img srcset="/assets/media/wide.webp 2x" />',
     "<img srcset='/assets/media/wide.webp 2x' />",
     "<source srcset='/assets/media/wide.webp 1x, /assets/media/wide.webp 2x' />",
-    "<video poster='/assets/media/wide.webp'></video>"
+    "<video poster='/assets/media/wide.webp'></video>",
+    /* HTML's third attribute-value form: unquoted. */
+    "<img src=/assets/media/wide.webp>",
+    "<img srcset=/assets/media/wide.webp>"
   ]) {
     withFixture((root) => {
       write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
@@ -457,22 +460,23 @@ test("a dangling symlink is still rejected", () => {
   });
 });
 
-test("npm config may not replace the script shell", () => {
-  /* `script-shell` would redirect `npm run preflight` before the guard runs. */
-  for (const setting of [
-    "script-shell=./evil.sh",
-    '"script-shell"=./evil.sh',
-    "'script-shell'=./evil.sh",
-    "  SCRIPT-SHELL = ./evil.sh",
-    "ignore-scripts=false",
-    "unsafe-perm=true"
+test("a tracked .npmrc is refused whatever it contains", () => {
+  /* npm config can replace the shell that runs `npm run preflight`, and its
+     ini parser accepts quoted keys and comment-truncated keys. Reading the
+     file meant re-deriving that parser, so the file itself is refused. */
+  for (const contents of [
+    "script-shell=./evil.sh\n",
+    '"script-shell"=./evil.sh\n',
+    "script-shell ; harmless = ./evil.sh\n",
+    "registry=https://registry.npmjs.org/\n",
+    ""
   ]) {
     withFixture((root) => {
-      write(root, ".npmrc", `${setting}\n`);
+      write(root, ".npmrc", contents);
       spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
       const result = run(root, "check-repository.mjs");
-      assert.equal(result.status, 1, `accepted ${setting}`);
-      assert.match(result.stderr, /\.npmrc may not set/);
+      assert.equal(result.status, 1, `accepted .npmrc: ${JSON.stringify(contents)}`);
+      assert.match(result.stderr, /Tracked \.npmrc can redirect the package scripts/);
     });
   }
 });
