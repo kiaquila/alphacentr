@@ -77,10 +77,16 @@ function validateProjectChecks(config, root) {
     return ["projectChecks must contain at least one real build or test command"];
   }
   if (existsSync(join(root, "site/package.json"))) {
+    /* The cwd matters as much as the argv: `--prefix site` is relative, so a
+       check running from `alternate/` would resolve to `alternate/site` and
+       leave the real site untested while the command looked identical. */
     const runsSiteCheck = config.projectChecks.some((check) => Array.isArray(check?.command) &&
       check.command.length === SITE_CHECK.length &&
-      check.command.every((part, index) => part === SITE_CHECK[index]));
-    if (!runsSiteCheck) errors.push(`projectChecks must run the site check: ${SITE_CHECK.join(" ")}`);
+      check.command.every((part, index) => part === SITE_CHECK[index]) &&
+      resolve(root, check.cwd ?? ".") === resolve(root));
+    if (!runsSiteCheck) {
+      errors.push(`projectChecks must run the site check from the repository root: ${SITE_CHECK.join(" ")}`);
+    }
     errors.push(...siteScriptErrors(root));
   }
   for (const [index, check] of config.projectChecks.entries()) {

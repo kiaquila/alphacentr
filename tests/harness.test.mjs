@@ -405,7 +405,7 @@ test("a no-op project check cannot replace the site check", () => {
     spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
     const result = run(root, "check-repository.mjs");
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /projectChecks must run the site check/);
+    assert.match(result.stderr, /must run the site check from the repository root/);
   });
 });
 
@@ -428,6 +428,26 @@ test("the real site check satisfies the requirement", () => {
     spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
     const result = run(root, "check-repository.mjs");
     assert.equal(result.status, 0, result.stderr);
+  });
+});
+
+test("the site check must run from the repository root", () => {
+  /* `--prefix site` is relative, so a check running from `alternate/` would
+     resolve to `alternate/site` and leave the real site untested. */
+  withFixture((root) => {
+    write(root, "site/package.json", `${SITE_PACKAGE}\n`);
+    write(root, "alternate/site/package.json", `${SITE_PACKAGE}\n`);
+    const config = readConfig(root);
+    config.projectChecks = [{
+      name: "site",
+      cwd: "alternate",
+      command: ["npm", "--prefix", "site", "run", "check"]
+    }];
+    writeConfig(root, config);
+    spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
+    const result = run(root, "check-repository.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /must run the site check from the repository root/);
   });
 });
 
