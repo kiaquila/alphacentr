@@ -61,13 +61,18 @@ function referencedMediaBytes(html, sizes, shared) {
     seen.add(asset);
     total += sizes.get(asset) ?? 0;
   };
-  for (const match of html.matchAll(/(?:src|href|poster)="\/([^"]+)"/g)) add(match[1]);
-  /* A srcset lists candidates as `url descriptor, url descriptor`; the browser
-     fetches one of them, so every candidate counts toward what the page can
-     cost. */
-  for (const match of html.matchAll(/srcset="([^"]+)"/g)) {
-    for (const candidate of match[1].split(",")) {
-      const url = candidate.trim().split(/\s+/)[0];
+  /* One matcher for every fetch-producing attribute, in either quote style, so
+     a spelling change in the templates cannot silently drop media from the
+     total. A srcset lists candidates as `url descriptor, url descriptor`; the
+     browser fetches one of them, so every candidate counts toward what the
+     page can cost. */
+  for (const match of html.matchAll(/\b(src|href|poster|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+    const [, attribute, doubleQuoted, singleQuoted] = match;
+    const value = doubleQuoted ?? singleQuoted ?? "";
+    const urls = attribute === "srcset"
+      ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
+      : [value.trim()];
+    for (const url of urls) {
       if (url.startsWith("/")) add(url.slice(1));
     }
   }

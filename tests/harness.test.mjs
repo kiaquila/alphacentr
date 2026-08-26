@@ -271,20 +271,25 @@ test("images a page references count against its family budget", () => {
   });
 });
 
-test("srcset candidates count toward the media budget", () => {
-  /* The browser fetches a srcset candidate, so scanning only src and href
-     would let a responsive image ship unmeasured. */
-  withFixture((root) => {
-    write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
-    write(
-      root,
-      "site/dist/index.html",
-      '<!doctype html><title>Home</title><img srcset="/assets/media/wide.webp 2x" />\n'
-    );
-    const result = run(root, "check-performance-budget.mjs");
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /Media of home \(index\.html\): \d+ B exceeds 4096 B/);
-  });
+test("media counts however the attribute is spelled", () => {
+  /* The browser fetches these, so a quote style or attribute the scanner did
+     not anticipate must not silently drop them from the total. */
+  for (const markup of [
+    '<img src="/assets/media/wide.webp" />',
+    "<img src='/assets/media/wide.webp' />",
+    '<img srcset="/assets/media/wide.webp 2x" />',
+    "<img srcset='/assets/media/wide.webp 2x' />",
+    "<source srcset='/assets/media/wide.webp 1x, /assets/media/wide.webp 2x' />",
+    "<video poster='/assets/media/wide.webp'></video>"
+  ]) {
+    withFixture((root) => {
+      write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
+      write(root, "site/dist/index.html", `<!doctype html><title>Home</title>${markup}\n`);
+      const result = run(root, "check-performance-budget.mjs");
+      assert.equal(result.status, 1, `media not counted: ${markup}`);
+      assert.match(result.stderr, /Media of home \(index\.html\): \d+ B exceeds 4096 B/);
+    });
+  }
 });
 
 test("a page no family covers is reported", () => {
@@ -454,7 +459,14 @@ test("a dangling symlink is still rejected", () => {
 
 test("npm config may not replace the script shell", () => {
   /* `script-shell` would redirect `npm run preflight` before the guard runs. */
-  for (const setting of ["script-shell=./evil.sh", "ignore-scripts=false", "unsafe-perm=true"]) {
+  for (const setting of [
+    "script-shell=./evil.sh",
+    '"script-shell"=./evil.sh',
+    "'script-shell'=./evil.sh",
+    "  SCRIPT-SHELL = ./evil.sh",
+    "ignore-scripts=false",
+    "unsafe-perm=true"
+  ]) {
     withFixture((root) => {
       write(root, ".npmrc", `${setting}\n`);
       spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });

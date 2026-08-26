@@ -240,13 +240,18 @@ for (const file of files) checkFileContents(file);
 
 /* npm config can replace the shell that runs the package scripts, so a tracked
    .npmrc could redirect `npm run preflight` before the guard ever starts.
-   CODEOWNERS puts these files behind review; this refuses the setting outright. */
+   CODEOWNERS puts these files behind review; this refuses the settings
+   outright. Keys are read the way npm's ini parser reads them — the text
+   before `=`, unquoted — rather than matched as raw text, so `script-shell`,
+   `"script-shell"` and `'script-shell'` are one case. */
+const FORBIDDEN_NPM_SETTINGS = new Set(["script-shell", "ignore-scripts", "unsafe-perm"]);
+
 for (const npmrc of files.filter((file) => /(?:^|\/)\.npmrc$/.test(file))) {
-  const text = readFileSync(join(root, npmrc), "utf8");
-  for (const setting of ["script-shell", "ignore-scripts", "unsafe-perm"]) {
-    if (new RegExp(`^\\s*${setting}\\s*=`, "m").test(text)) {
-      failures.push(`${npmrc} may not set ${setting}`);
-    }
+  for (const line of readFileSync(join(root, npmrc), "utf8").split("\n")) {
+    const separator = line.indexOf("=");
+    if (separator === -1) continue;
+    const key = line.slice(0, separator).trim().replace(/^(["'])([\s\S]*)\1$/, "$2").trim().toLowerCase();
+    if (FORBIDDEN_NPM_SETTINGS.has(key)) failures.push(`${npmrc} may not set ${key}`);
   }
 }
 for (const workflow of files.filter((file) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(file))) {
