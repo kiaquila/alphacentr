@@ -232,7 +232,16 @@ test("repository policy rejects job-level permission overrides", () => {
     '    permissions:\n      contents: "write"',
     "    permissions:\n      contents: 'write'",
     "    permissions:\n      contents: read\n      id-token: write",
-    "    permissions:\n      contents: write # needed for the release"
+    "    permissions:\n      contents: write # needed for the release",
+    /* Quoted keys parse as the normal key, so they must be read too. */
+    "    'permissions': write-all",
+    '    "permissions": write-all',
+    "    permissions:\n      'contents': write",
+    "    permissions:\n      \"contents\": 'write'",
+    "    permissions: {contents: read, id-token: write}",
+    /* Fail closed: a shape the guard cannot read is rejected, not assumed safe. */
+    "    permissions: {contents: write",
+    "    permissions: something-unexpected"
   ]) {
     withFixture((root) => {
       const path = join(root, ".github/workflows/ci.yml");
@@ -250,8 +259,13 @@ test("read-only permission declarations still pass", () => {
   for (const override of [
     "    permissions:\n      contents: read",
     '    permissions:\n      contents: "read"',
+    "    permissions:\n      'contents': 'read'",
+    "    permissions:\n      contents: read # only reads the checkout",
+    "    permissions:\n      contents: read\n      id-token: none",
     "    permissions: read-all",
-    "    permissions: {}"
+    '    "permissions": read-all',
+    "    permissions: {}",
+    "    permissions: {contents: read, id-token: none}"
   ]) {
     withFixture((root) => {
       const path = join(root, ".github/workflows/ci.yml");

@@ -48,31 +48,59 @@ const SECRETS = [
 ];
 const PERSONAL_PATHS = [/\/Users\/[A-Za-z0-9._-]+\//, /\/home\/[A-Za-z0-9._-]+\//, /[A-Za-z]:\\Users\\/];
 
-/* Every `permissions:` declaration in a workflow, as a list of the raw entries
-   it grants. A job-level declaration overrides the top-level one, so all of
-   them matter, and both the inline form (`permissions: write-all`) and the
-   nested block form are collected. Returning the raw entries — rather than
-   testing shapes with a regex per shape — keeps the caller's rule to a single
-   question, which is what the previous guard failed to do. */
-function permissionGrants(text) {
+const PERMISSIONS_KEY = /^([ \t]*)(?:permissions|"permissions"|'permissions')[ \t]*:[ \t]*(.*)$/;
+const READ_VALUES = new Set(["read", "none"]);
+
+function unquote(value) {
+  const trimmed = value.trim();
+  const quoted = trimmed.match(/^(["'])([\s\S]*)\1$/);
+  return quoted ? quoted[2].trim() : trimmed;
+}
+
+/* Every `permissions:` declaration must be provably read-only, and anything
+   this cannot read is rejected rather than assumed safe.
+
+   That direction matters. Hunting for write grants needs a new pattern for
+   every way YAML can spell one — bare, quoted value, quoted key, flow mapping,
+   trailing comment — and each missed spelling silently grants a token. Asking
+   instead whether every entry is `read` or `none` has one answer, and an
+   unfamiliar shape fails the build instead of passing it. */
+function permissionFailures(text) {
   const lines = text.split("\n");
-  const grants = [];
+  const failures = [];
+
+  const checkEntry = (entry) => {
+    const separator = entry.indexOf(":");
+    const value = separator === -1 ? "" : unquote(entry.slice(separator + 1));
+    if (separator === -1 || !READ_VALUES.has(value)) failures.push(entry.trim());
+  };
+
   for (const [index, line] of lines.entries()) {
-    const declaration = line.match(/^([ \t]*)permissions:[ \t]*(.*)$/);
+    const declaration = line.match(PERMISSIONS_KEY);
     if (!declaration) continue;
     const [, indent, rest] = declaration;
-    const inline = rest.replace(/#.*$/, "").trim();
+    const inline = rest.replace(/\s#.*$/, "").trim();
+
     if (inline) {
-      grants.push({ entry: inline, unclosed: inline.startsWith("{") && !inline.includes("}") });
+      const value = unquote(inline);
+      if (!value.startsWith("{")) {
+        if (value !== "read-all") failures.push(inline);
+      } else if (!value.endsWith("}")) {
+        failures.push(inline);
+      } else {
+        const inner = value.slice(1, -1).trim();
+        if (inner) inner.split(",").forEach(checkEntry);
+      }
       continue;
     }
+
     for (const nested of lines.slice(index + 1)) {
       if (!nested.trim() || nested.trim().startsWith("#")) continue;
       if (nested.match(/^[ \t]*/)[0].length <= indent.length) break;
-      grants.push({ entry: nested.replace(/#.*$/, "").trim(), unclosed: false });
+      checkEntry(nested.replace(/\s#.*$/, ""));
     }
   }
-  return grants;
+  return failures;
 }
 
 function listTrackedFiles() {
@@ -127,21 +155,14 @@ function checkWorkflow(workflow) {
   if (/^\s*workflow_run:/m.test(text)) {
     failures.push(`workflow_run runs privileged against proposed code in ${workflow}`);
   }
-  if (!/^permissions:\s*(?:\n|$)/m.test(text)) {
+  if (!PERMISSIONS_KEY.test(text.split("\n").find((line) => PERMISSIONS_KEY.test(line) && !/^[ \t]/.test(line)) ?? "")) {
     failures.push(`Workflow must declare top-level permissions: ${workflow}`);
   }
-  /* A permissions value is only ever read, write, or none, so any `write`
-     anywhere in a declaration is a write grant — quoted or not, inline or
-     nested, top-level or job-level. Validation runs on proposed code, so a
-     write token would let a branch mint its own approval or publish from an
-     unreviewed commit. */
-  for (const { entry, unclosed } of permissionGrants(text)) {
-    if (unclosed) {
-      failures.push(`Workflow permissions must be a single-line or nested mapping in ${workflow}`);
-    }
-    if (/(?:^|[^a-z-])write(?:-all)?(?:[^a-z-]|$)/.test(entry.replaceAll(/["']/g, ""))) {
-      failures.push(`Workflow may not grant write permissions (${entry}) in ${workflow}`);
-    }
+  /* Validation runs on proposed code, so a write token anywhere in the file —
+     top-level or on any job, which overrides it — would let a branch mint its
+     own approval or publish from an unreviewed commit. */
+  for (const entry of permissionFailures(text)) {
+    failures.push(`Workflow may not grant write permissions (${entry}) in ${workflow}`);
   }
   if (/\bsecrets\.(?!GITHUB_TOKEN\b)[A-Za-z_][A-Za-z0-9_]*/.test(text)) {
     failures.push(`Workflow may not consume repository secrets in ${workflow}`);
