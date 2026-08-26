@@ -377,7 +377,9 @@ test("metadata and commented-out CSS are not fetched", () => {
     "<textarea><img src=\"/assets/media/wide.webp\"></textarea>",
     /* A quoted `>` in a <style> start tag must not turn the rest of that
        attribute value into live CSS. */
-    '<style data-label=">background:url(/assets/media/wide.webp)"></style>'
+    '<style data-label=">background:url(/assets/media/wide.webp)"></style>',
+    /* CSS contents are not markup: an <img> inside a CSS string is text. */
+    "<style>.x::before{content:\"<img src='/assets/media/wide.webp'>\"}</style>"
   ]) {
     withFixture((root) => {
       write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));

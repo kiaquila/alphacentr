@@ -157,6 +157,7 @@ function assetPath(raw, baseDirectory) {
    one does not look like the end of the tag. Shared by the tag scan and the
    raw-text strip, which must agree on where a start tag ends. */
 const ATTRIBUTE_RUN = `(?:"[^"]*"|'[^']*'|[^>"'])*`;
+const STYLE_BLOCK = new RegExp(`<style\\b${ATTRIBUTE_RUN}>([\\s\\S]*?)</style\\s*>`, "gi");
 
 function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, unresolved) {
   let total = 0;
@@ -225,12 +226,21 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
     }
   };
 
+  /* Take the <style> contents out of the markup before scanning tags. They are
+     CSS, not markup: an `<img src=…>` written inside a CSS string is text the
+     browser never fetches. The contents are scanned as CSS below. */
+  const styleBlocks = [];
+  const markup = live.replace(STYLE_BLOCK, (match, contents) => {
+    styleBlocks.push(contents);
+    return " ";
+  });
+
   /* Scan start tags rather than the whole document: `style=…` or `src=…`
      appearing in text content — inside a <code> sample, say — is not an
      attribute and fetches nothing. The tag pattern steps over quoted values so
      a `>` inside one (`alt="a > b"`) does not end the tag early. */
   const START_TAG = new RegExp(`<([a-zA-Z][\\w-]*)(${ATTRIBUTE_RUN})>`, "g");
-  for (const [, name, attributes] of live.matchAll(START_TAG)) {
+  for (const [, name, attributes] of markup.matchAll(START_TAG)) {
     scan(attributes, "src|poster|srcset");
     if (name.toLowerCase() === "link") scan(attributes, "href");
     for (const style of attributes.matchAll(
@@ -243,9 +253,8 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
   }
   /* A <style> block's contents are CSS, fetched exactly like an <img> and
      belonging to this page rather than to the shared stylesheet. */
-  const STYLE_BLOCK = new RegExp(`<style\\b${ATTRIBUTE_RUN}>([\\s\\S]*?)</style\\s*>`, "gi");
-  for (const block of live.matchAll(STYLE_BLOCK)) {
-    for (const url of cssUrls(block[1] ?? "")) {
+  for (const contents of styleBlocks) {
+    for (const url of cssUrls(contents)) {
       add(decodeCssEscapes(decodeEntities(url)), true);
     }
   }
