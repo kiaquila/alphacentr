@@ -77,15 +77,39 @@ const UNREADABLE_YAML = [
   [/"[^"\n]*\\[^"\n]*"/, "an escaped double-quoted scalar"],
   /* A flow collection puts structure on one line, which is precisely where a
      line-oriented reader stops seeing it: `job: {permissions: write-all, ...}`
-     hides a token grant that block style would expose. `${{ }}` expressions are
-     untouched — their brace follows `$`, not `: `. */
-  [/^[ \t]*(?:-[ \t]+)?[^\s:#][^:#\n]*:[ \t]*[{[]/m, "a flow collection"],
-  [/^[ \t]*-[ \t]*[{[]/m, "a flow collection"],
+     hides a token grant that block style would expose. Rather than enumerate
+     the positions a collection may open in — after `key:`, after `-`, or on
+     its own continuation line — this refuses any of them: a `{` or `[` that
+     opens a node. `${{ }}` expressions are untouched, because their brace
+     follows `$`; block-scalar bodies are exempt, because a shell script may
+     legitimately start a line with `[`. */
+  [/^[ \t]*(?:-[ \t]+)?(?:[^\s:#][^:#\n]*:[ \t]*)?[{[]/m, "a flow collection"],
+  [/:[ \t]*[{[]/m, "a flow collection"],
   [/^[ \t]*\?(?:[ \t]|$)/m, "an explicit key"],
   [/^[ \t]*(?:<<|"<<"|'<<')[ \t]*:/m, "a merge key"],
   [/:[ \t]+[&*][A-Za-z_][\w-]*(?=[ \t]|$)/m, "a YAML anchor or alias"],
   [/^[ \t]*-[ \t]+[&*][A-Za-z_][\w-]*(?=[ \t]|$)/m, "a YAML anchor or alias"]
 ];
+
+/* Lines inside a block scalar (`|` or `>`) are literal text, not YAML
+   structure: a `run:` script may legitimately start a line with `[`, contain
+   braces, or use a backslash. The structural rules therefore read the document
+   with those bodies removed. Secret scanning deliberately does not use this —
+   GitHub still expands `${{ }}` inside a block scalar. */
+function structuralText(text) {
+  const kept = [];
+  let blockIndent = null;
+  for (const line of text.split("\n")) {
+    const indent = line.match(/^[ \t]*/)[0].length;
+    if (blockIndent !== null) {
+      if (!line.trim() || indent > blockIndent) continue;
+      blockIndent = null;
+    }
+    kept.push(line);
+    if (/:[ \t]*[|>][+-]?\d*[ \t]*(?:#.*)?$/.test(line)) blockIndent = indent;
+  }
+  return kept.join("\n");
+}
 
 function unquote(value) {
   const trimmed = value.trim();
@@ -191,11 +215,12 @@ function checkFileContents(file) {
    escalate to, so the token grant is the property worth checking. */
 function checkWorkflow(workflow) {
   const text = readFileSync(join(root, workflow), "utf8");
+  const structural = structuralText(text);
 
   if (/\bpull_request_target\b/.test(text)) {
     failures.push(`High-risk pull_request_target trigger in ${workflow}`);
   }
-  if (keyPattern("workflow_run").test(text)) {
+  if (keyPattern("workflow_run").test(structural)) {
     failures.push(`workflow_run runs privileged against proposed code in ${workflow}`);
   }
   /* A manual run selects a ref, and GitHub loads that ref's copy of the
@@ -203,24 +228,24 @@ function checkWorkflow(workflow) {
      from that same copy, ever sees them. No `if` condition inside the file can
      fix that, because the branch owns the condition too. The only reliable
      answer for a repository that needs no manual runs is not to offer them. */
-  if (keyPattern("workflow_dispatch").test(text)) {
+  if (keyPattern("workflow_dispatch").test(structural)) {
     failures.push(`Manual dispatch lets a branch supply its own workflow in ${workflow}`);
   }
-  const declaresTopLevel = text
+  const declaresTopLevel = structural
     .split("\n")
     .some((line) => !/^[ \t]/.test(line) && PERMISSIONS_KEY.test(line));
   if (!declaresTopLevel) {
     failures.push(`Workflow must declare top-level permissions: ${workflow}`);
   }
   for (const [pattern, description] of UNREADABLE_YAML) {
-    if (pattern.test(text)) {
+    if (pattern.test(structural)) {
       failures.push(`Workflow uses ${description}, which this guard does not decode: ${workflow}`);
     }
   }
   /* Validation runs on proposed code, so a write token anywhere in the file —
      top-level or on any job, which overrides it — would let a branch mint its
      own approval or publish from an unreviewed commit. */
-  for (const entry of permissionFailures(text)) {
+  for (const entry of permissionFailures(structural)) {
     failures.push(`Workflow may not grant write permissions (${entry}) in ${workflow}`);
   }
   /* A workflow that validates proposed code has no business reading a
@@ -234,7 +259,7 @@ function checkWorkflow(workflow) {
     const context = text.slice(match.index, match.index + 40).split("\n")[0];
     failures.push(`Workflow may not consume repository secrets in ${workflow}: ${context}`);
   }
-  for (const match of text.matchAll(/^\s*-?\s*(?:uses|"uses"|'uses')\s*:\s*["']?([^\s"']+)["']?\s*(?:#.*)?$/gm)) {
+  for (const match of structural.matchAll(/^\s*-?\s*(?:uses|"uses"|'uses')\s*:\s*["']?([^\s"']+)["']?\s*(?:#.*)?$/gm)) {
     const action = match[1];
     if (action.startsWith("./")) continue;
     /* A container tag is mutable, so its publisher can change what CI runs

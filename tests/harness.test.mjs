@@ -307,7 +307,9 @@ test("flow collections are refused so line-oriented reading stays valid", () => 
     "    permissions: {contents: read, id-token: write}",
     "    permissions: {}",
     /* A flow mapping can also begin a sequence item, right after the dash. */
-    "  seq-job:\n    runs-on: ubuntu-latest\n    steps:\n      - {name: Checkout, uses: actions/checkout@main}"
+    "  seq-job:\n    runs-on: ubuntu-latest\n    steps:\n      - {name: Checkout, uses: actions/checkout@main}",
+    /* A flow collection on its own continuation line is still the job value. */
+    "  cont-job:\n    {permissions: write-all, runs-on: ubuntu-latest, steps: [{run: echo hi}]}"
   ]) {
     withFixture((root) => {
       const path = join(root, ".github/workflows/ci.yml");
@@ -319,6 +321,40 @@ test("flow collections are refused so line-oriented reading stays valid", () => 
       assert.match(result.stderr, /flow collection/);
     });
   }
+});
+
+test("block scalars may contain shell that looks like YAML", () => {
+  /* A `run:` body is literal text, so braces, brackets and backslashes in a
+     shell script must not be mistaken for flow collections or escapes. */
+  withFixture((root) => {
+    const path = join(root, ".github/workflows/ci.yml");
+    const script = [
+      "      - name: Shell that looks structural",
+      "        run: |",
+      "          [ -f package.json ] && echo present",
+      "          {name: not-yaml}",
+      '          echo "a\\tb"',
+      "          for f in *.{js,mjs}; do echo \"$f\"; done"
+    ].join("\n");
+    const workflow = readFileSync(path, "utf8").replace("      - name: Setup Node", `${script}\n      - name: Setup Node`);
+    writeFileSync(path, workflow);
+    const result = run(root, "check-repository.mjs");
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+
+test("secrets are still found inside a block scalar", () => {
+  /* GitHub expands ${{ }} inside a block scalar, so the secrets scan must not
+     skip one even though the structural rules do. */
+  withFixture((root) => {
+    const path = join(root, ".github/workflows/ci.yml");
+    const script = "      - name: Leak\n        run: |\n          echo ${{ secrets.DEPLOY_TOKEN }}";
+    const workflow = readFileSync(path, "utf8").replace("      - name: Setup Node", `${script}\n      - name: Setup Node`);
+    writeFileSync(path, workflow);
+    const result = run(root, "check-repository.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /may not consume repository secrets/);
+  });
 });
 
 test("quoted trigger keys are still detected", () => {
