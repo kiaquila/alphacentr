@@ -288,6 +288,20 @@ test("media pulled in by a page's own CSS counts against that page", () => {
   }
 });
 
+test("a <link> href is an immediate fetch and is counted", () => {
+  withFixture((root) => {
+    write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
+    write(
+      root,
+      "site/dist/index.html",
+      '<!doctype html><title>Home</title><link rel="preload" as="image" href="/assets/media/wide.webp" />\n'
+    );
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Media of home \(index\.html\): \d+ B exceeds 4096 B/);
+  });
+});
+
 test("a comment delimiter inside a CSS string is literal text", () => {
   /* `/*` in a quoted value does not open a comment, so a regex sweep between
      two strings would swallow the live declaration between them. */
@@ -315,9 +329,17 @@ test("metadata and commented-out CSS are not fetched", () => {
     /* A backslash escapes outside a string too, so this opens no string and
        the comment after it is still a comment. */
     '<style>:root{--quote: \\";} /* background:url(/retired.webp) */</style>',
-    '<img data-src="/assets/media/wide.webp" />'
+    '<img data-src="/assets/media/wide.webp" />',
+    /* Commented-out markup is not fetched. */
+    '<!-- <img src="/assets/media/wide.webp" /> -->',
+    /* An anchor is navigation: the file is fetched only if someone clicks. */
+    '<a href="/assets/media/wide.webp">download</a>'
   ]) {
     withFixture((root) => {
+      write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
+      const config = readConfig(root);
+      config.performance.unreferencedMedia = ["assets/media/cover.webp", "assets/media/wide.webp"];
+      writeConfig(root, config);
       write(root, "site/dist/index.html", `<!doctype html><title>Home</title>${markup}\n`);
       const result = run(root, "check-performance-budget.mjs");
       assert.equal(result.status, 0, `treated as a fetch: ${markup}\n${result.stderr}`);

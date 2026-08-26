@@ -177,30 +177,45 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
     discovered?.add(asset);
     total += sizes.get(asset);
   };
+  /* Commented-out markup is not fetched. HTML comments do not nest, so
+     removing them is exact. */
+  const live = html.replace(/<!--[\s\S]*?-->/g, " ");
+
   /* One matcher for every fetch-producing attribute. The name must start an
      attribute — preceded by whitespace, a quote or a slash — so `data-src`,
-     which the browser does not fetch, is not read as `src`. HTML allows exactly three
-     attribute-value forms — double-quoted, single-quoted, and unquoted (no
-     whitespace, quotes, =, <, > or backtick) — so covering all three is
+     which the browser does not fetch, is not read as `src`. HTML allows exactly
+     three attribute-value forms — double-quoted, single-quoted, and unquoted
+     (no whitespace, quotes, =, <, > or backtick) — so covering all three is
      complete rather than another guess at a spelling. A srcset lists candidates
      as `url descriptor, url descriptor`; the browser fetches one of them, so
-     every candidate counts toward what the page can cost. */
-  for (const match of html.matchAll(
-    /(?:^|[\s"'\/])(src|href|poster|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
-  )) {
-    const [, attribute, doubleQuoted, singleQuoted, unquoted] = match;
-    const value = decodeEntities(doubleQuoted ?? singleQuoted ?? unquoted ?? "");
-    const urls = attribute.toLowerCase() === "srcset"
-      ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
-      : [value.trim()];
-    for (const url of urls) add(url, attribute.toLowerCase() !== "href");
-  }
+     every candidate counts toward what the page can cost.
+
+     `href` is deliberately not in this set: on an anchor it is navigation, and
+     the file is fetched only if someone follows the link. It is scanned below,
+     on <link> elements alone, where it does name an immediate fetch. */
+  const scan = (text, attributes) => {
+    const pattern = new RegExp(
+      `(?:^|[\\s"'/])(${attributes})\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\`]+))`,
+      "gi"
+    );
+    for (const match of text.matchAll(pattern)) {
+      const [, attribute, doubleQuoted, singleQuoted, unquoted] = match;
+      const value = decodeEntities(doubleQuoted ?? singleQuoted ?? unquoted ?? "");
+      const urls = attribute.toLowerCase() === "srcset"
+        ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
+        : [value.trim()];
+      for (const url of urls) add(url, true);
+    }
+  };
+
+  scan(live, "src|poster|srcset");
+  for (const link of live.matchAll(/<link\b[^>]*>/gi)) scan(link[0], "href");
   /* Media the page pulls in through its own CSS — a <style> block or a style
      attribute — is fetched exactly like an <img> and belongs to this page, not
      to the shared stylesheet. */
   for (const block of [
-    ...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi),
-    ...html.matchAll(/(?:^|[\s"'\/])style\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)
+    ...live.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi),
+    ...live.matchAll(/(?:^|[\s"'\/])style\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)
   ]) {
     for (const url of cssUrls(block[1] ?? block[2] ?? "")) {
       add(decodeCssEscapes(decodeEntities(url)), true);
