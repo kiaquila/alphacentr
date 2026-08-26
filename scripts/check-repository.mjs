@@ -57,6 +57,7 @@ const SECRETS = [
   ["AWS access key", /AKIA[0-9A-Z]{16}/]
 ];
 const PERSONAL_PATHS = [/\/Users\/[A-Za-z0-9._-]+\//, /\/home\/[A-Za-z0-9._-]+\//, /[A-Za-z]:\\Users\\/];
+const MAX_SCANNED_BYTES = 64_000_000;
 
 /* Validation runs on proposed code. A write token would let a branch mint its
    own approval or publish from an unreviewed commit, and a manual or
@@ -97,7 +98,14 @@ function checkFileContents(file) {
     failures.push(`Symbolic links are not allowed: ${normalized}`);
     return;
   }
-  if (!stat.isFile() || stat.size > 2_000_000) return;
+  if (!stat.isFile()) return;
+  /* Size does not exempt a file from the secret scan — a growing content
+     export is exactly where a key would hide unnoticed. Only genuinely huge
+     files are refused, and refused rather than skipped. */
+  if (stat.size > MAX_SCANNED_BYTES) {
+    failures.push(`Tracked file is too large to scan (${stat.size} B): ${normalized}`);
+    return;
+  }
 
   const buffer = readFileSync(path);
   if (buffer.subarray(0, Math.min(buffer.length, 8192)).includes(0)) return;

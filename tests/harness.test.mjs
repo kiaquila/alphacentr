@@ -38,8 +38,9 @@ const FIXTURE_CONFIG = {
   performance: {
     outputDirectory: "site/dist",
     allowedExtensions: [".css", ".html", ".js", ".webp"],
-    representativePages: [
-      { name: "home", file: "index.html", measuredGzipBytes: 60, gzipBytes: 4096 }
+    pageFamilies: [
+      { name: "home", pattern: "^index\\.html$", measuredGzipBytes: 60, gzipBytes: 4096 },
+      { name: "other pages", pattern: "^.+/index\\.html$", measuredGzipBytes: 60, gzipBytes: 4096 }
     ],
     sharedAssets: [
       { name: "stylesheet", files: ["assets/styles.css"], measuredGzipBytes: 40, gzipBytes: 2048 },
@@ -90,6 +91,9 @@ function makeFixture() {
   assert.equal(add.status, 0, add.stderr);
 
   write(root, "site/dist/index.html", "<!doctype html><title>Alpha Lumen</title>\n");
+  /* A second page so both fixture families match something, the way every
+     family in the real config covers at least one built route. */
+  write(root, "site/dist/other/index.html", "<!doctype html><title>Other</title>\n");
   write(root, "site/dist/assets/styles.css", ":root { color: #1b2a24; }\n");
   write(root, "site/dist/assets/nav.js", "document.documentElement.dataset.ready = 'true';\n");
   write(root, "site/dist/assets/media/cover.webp", randomBytes(512));
@@ -181,7 +185,7 @@ test("critical HTML over its per-page budget fails", () => {
     write(root, "site/dist/index.html", randomBytes(8 * 1024).toString("hex"));
     const result = run(root, "check-performance-budget.mjs");
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /Critical HTML of home: \d+ B exceeds 4096 B/);
+    assert.match(result.stderr, /Heaviest home \(index\.html\): \d+ B exceeds 4096 B/);
   });
 });
 
@@ -214,6 +218,26 @@ test("many pages within budget do not fail on their total", () => {
   });
 });
 
+test("a page that is not the configured representative is still budgeted", () => {
+  /* The reason families replaced named sample pages: any of the other 817
+     pages growing past the sample must fail, not pass unmeasured. */
+  withFixture((root) => {
+    write(root, "site/dist/some-other-page/index.html", randomBytes(8 * 1024).toString("hex"));
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Heaviest other pages \(some-other-page\/index\.html\): \d+ B exceeds/);
+  });
+});
+
+test("a page no family covers is reported", () => {
+  withFixture((root) => {
+    write(root, "site/dist/stray.html", "<!doctype html><title>Stray</title>\n");
+    const result = run(root, "check-performance-budget.mjs");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /No page family covers stray\.html/);
+  });
+});
+
 test("unexpected deployable file types fail", () => {
   withFixture((root) => {
     write(root, "site/dist/video.mp4", "not really a video\n");
@@ -226,7 +250,7 @@ test("unexpected deployable file types fail", () => {
 test("a budget below its own recorded measurement is rejected", () => {
   withFixture((root) => {
     const config = readConfig(root);
-    config.performance.representativePages[0].measuredGzipBytes = 9000;
+    config.performance.pageFamilies[0].measuredGzipBytes = 9000;
     writeConfig(root, config);
     const result = run(root, "check-repository.mjs");
     assert.equal(result.status, 1);

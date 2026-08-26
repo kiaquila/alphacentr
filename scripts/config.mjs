@@ -52,23 +52,33 @@ const SITE_CHECK = ["npm", "--prefix", "site", "run", "check"];
    while the argv stayed identical. So the scripts it resolves to are pinned
    too. Changing how the site is built or tested is fine — update these values
    in the same pull request, the way a payload budget is re-measured. */
+/* CI runs `npm run preflight`, which is itself a chain of root aliases. Pinning
+   only the site scripts would leave that chain free to drop a step, so the
+   scripts CI actually invokes are pinned here as well. */
+const ROOT_SCRIPTS = {
+  "check:repository": "node scripts/check-repository.mjs",
+  "check:project": "node scripts/run-project-checks.mjs",
+  "check:budget": "node scripts/check-performance-budget.mjs",
+  "test:harness": "node --test tests/*.test.mjs",
+  preflight: "npm run check:repository && npm run test:harness && npm run check:project && npm run check:budget"
+};
+
 const SITE_SCRIPTS = {
   build: "node scripts/build.mjs",
   test: 'node --test "tests/*.test.mjs"',
   check: "npm run build && npm test"
 };
 
-function siteScriptErrors(root) {
-  const path = join(root, "site/package.json");
+function scriptErrors(root, relativePath, expected) {
   let scripts;
   try {
-    scripts = JSON.parse(readFileSync(path, "utf8")).scripts ?? {};
+    scripts = JSON.parse(readFileSync(join(root, relativePath), "utf8")).scripts ?? {};
   } catch (error) {
-    return [`Cannot read site/package.json: ${error.message}`];
+    return [`Cannot read ${relativePath}: ${error.message}`];
   }
-  return Object.entries(SITE_SCRIPTS)
+  return Object.entries(expected)
     .filter(([name, body]) => scripts[name] !== body)
-    .map(([name, body]) => `site/package.json script "${name}" must be: ${body}`);
+    .map(([name, body]) => `${relativePath} script "${name}" must be: ${body}`);
 }
 
 function validateProjectChecks(config, root) {
@@ -87,7 +97,7 @@ function validateProjectChecks(config, root) {
     if (!runsSiteCheck) {
       errors.push(`projectChecks must run the site check from the repository root: ${SITE_CHECK.join(" ")}`);
     }
-    errors.push(...siteScriptErrors(root));
+    errors.push(...scriptErrors(root, "site/package.json", SITE_SCRIPTS));
   }
   for (const [index, check] of config.projectChecks.entries()) {
     if (!isObject(check) || typeof check.name !== "string" || !check.name.trim()) {
@@ -104,25 +114,38 @@ function validateProjectChecks(config, root) {
   return errors;
 }
 
-/* A representative page stands for one family of routes produced by
-   site/src/routes.mjs. Its budget covers the critical HTML document only —
-   the bytes the browser must have before it can render anything. */
-function validateRepresentativePages(pages, output) {
+/* A page family is one group of routes produced by site/src/routes.mjs, named
+   by a pattern over the built path. The budget covers the critical HTML
+   document — the bytes a browser must have before it can render anything.
+
+   Families rather than named sample pages: a fixed sample only proves that
+   that one page is small, and any of the other 817 could grow past it
+   unnoticed. The checker measures every page in a family and holds its maximum
+   to the budget, so the representative is derived from the build rather than
+   trusted from the config. */
+function validatePageFamilies(families, output) {
   const errors = [];
-  if (!Array.isArray(pages) || pages.length === 0) {
-    return ["performance.representativePages must list the routes that stand for each page family"];
+  if (!Array.isArray(families) || families.length === 0) {
+    return ["performance.pageFamilies must describe every family of built pages"];
   }
-  for (const [index, page] of pages.entries()) {
-    const label = `performance.representativePages[${index}]`;
-    if (!isObject(page) || typeof page.name !== "string" || !page.name.trim()) {
+  for (const [index, family] of families.entries()) {
+    const label = `performance.pageFamilies[${index}]`;
+    if (!isObject(family) || typeof family.name !== "string" || !family.name.trim()) {
       errors.push(`${label} must have a name`);
       continue;
     }
-    errors.push(...collect(() => resolveWithin(output, page.file, `${label}.file`)));
-    if (!positiveInteger(page.gzipBytes)) errors.push(`${label}.gzipBytes must be positive`);
-    if (!positiveInteger(page.measuredGzipBytes)) {
+    if (typeof family.pattern !== "string" || !family.pattern) {
+      errors.push(`${label}.pattern must be a regular expression over the built path`);
+    } else {
+      errors.push(...collect(() => new RegExp(family.pattern)));
+    }
+    if (family.representative !== undefined) {
+      errors.push(...collect(() => resolveWithin(output, family.representative, `${label}.representative`)));
+    }
+    if (!positiveInteger(family.gzipBytes)) errors.push(`${label}.gzipBytes must be positive`);
+    if (!positiveInteger(family.measuredGzipBytes)) {
       errors.push(`${label}.measuredGzipBytes must record the measured baseline`);
-    } else if (positiveInteger(page.gzipBytes) && page.gzipBytes < page.measuredGzipBytes) {
+    } else if (positiveInteger(family.gzipBytes) && family.gzipBytes < family.measuredGzipBytes) {
       errors.push(`${label}.gzipBytes is below its own recorded measurement`);
     }
   }
@@ -200,6 +223,7 @@ export function validateConfig(config, root) {
     errors.push("projectSlug must be replaced with the project's lower-case kebab-case slug");
   }
   errors.push(...validateProjectChecks(config, root));
+  errors.push(...scriptErrors(root, "package.json", ROOT_SCRIPTS));
 
   const performance = config.performance;
   if (!isObject(performance)) return [...errors, "performance configuration is required"];
@@ -212,7 +236,7 @@ export function validateConfig(config, root) {
       performance.allowedExtensions.some((value) => !extension.test(value))) {
     errors.push("performance.allowedExtensions must contain lower-case file extensions");
   }
-  errors.push(...validateRepresentativePages(performance.representativePages, output));
+  errors.push(...validatePageFamilies(performance.pageFamilies, output));
   errors.push(...validateSharedAssets(performance.sharedAssets, output));
   errors.push(...validatePerFileLimits(performance.perFileLimits));
   return errors;

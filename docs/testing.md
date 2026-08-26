@@ -39,14 +39,21 @@ all HTML and images does not describe what anybody downloads.
 
 So the budget measures what a visit actually costs:
 
-1. **Critical HTML per representative page.** For each page family produced by
-   `site/src/routes.mjs` — home, catalogue, article, author, info — the budget
-   covers the **heaviest member of that family**, so the limit actually binds,
-   plus the index or landing page visitors usually arrive on. The heaviest
-   member is found by enumerating every route the family's module returns and
-   measuring all of them, not by guessing from the URL shape. The site loads CSS
-   and JS as separate files, so a page's critical payload is its HTML document,
-   and it is measured gzipped because that is how it is served.
+1. **Critical HTML per page family.** Every built page belongs to exactly one
+   family, named by a pattern over its path, and each family has a budget. The
+   checker gzips **every** page in a family and holds its heaviest member to
+   that budget.
+
+   Families rather than a list of sample pages: naming one page per family only
+   proves that page is small, and any of the other 817 could grow past it
+   unnoticed — which is exactly what happened during review, when the author
+   sample was the small landing page rather than the family's heaviest. The
+   representative recorded below is therefore derived from the build, not
+   trusted from the config, and a page matching no family is a failure, so none
+   goes unbudgeted.
+
+   The site loads CSS and JS as separate files, so a page's critical payload is
+   its HTML document, measured gzipped because that is how it is served.
 2. **Shared assets**, budgeted separately because they are fetched once and then
    reused across all 828 routes.
 3. **Per-file ceilings**, so one oversized image fails on its own instead of
@@ -58,23 +65,26 @@ Measured from `npm --prefix site run build` at the commit that introduced this
 budget. Every limit is stored beside the measurement it came from, and
 `scripts/config.mjs` rejects a limit set below its own recorded measurement.
 
-| Representative page | Route family | Measured gzip | Budget |
-| --- | --- | ---: | ---: |
-| home | `home.mjs` | 8 794 B | 10 240 B |
-| catalogue index | `catalog.mjs` | 5 602 B | 6 656 B |
-| catalogue category (largest) | `catalog.mjs` | 8 511 B | 10 240 B |
-| session page (largest) | `catalog.mjs` | 16 029 B | 18 432 B |
-| articles index | `articles.mjs` | 5 077 B | 6 144 B |
-| article section (largest) | `articles.mjs` | 9 816 B | 11 264 B |
-| article page (largest) | `articles.mjs` | 42 329 B | 47 104 B |
-| author landing | `author.mjs` | 4 488 B | 5 632 B |
-| author page (largest) | `author.mjs` | 10 284 B | 11 776 B |
-| testimonials (largest listing) | `info.mjs` | 32 122 B | 36 864 B |
-| FAQ | `info.mjs` | 17 891 B | 20 480 B |
+| Page family | Pages | Heaviest measured | Budget |
+| --- | ---: | ---: | ---: |
+| home | 1 | 8 794 B | 10 240 B |
+| catalogue index | 1 | 5 602 B | 6 656 B |
+| catalogue category | 18 | 8 511 B | 10 240 B |
+| session page | 606 | 16 029 B | 18 432 B |
+| articles index | 1 | 5 077 B | 6 144 B |
+| article section | 16 | 9 816 B | 11 264 B |
+| article page | 141 | 42 329 B | 47 104 B |
+| author landing | 1 | 4 488 B | 5 632 B |
+| author page | 6 | 10 284 B | 11 776 B |
+| press item | 8 | 4 333 B | 5 120 B |
+| testimonials | 1 | 32 122 B | 36 864 B |
+| FAQ | 1 | 17 891 B | 20 480 B |
+| editorial, legal and news | 27 | 17 893 B | 20 480 B |
 
-`/otzyvy/` is the heaviest route `info.mjs` produces; `/info/` is within 2 bytes
-of the FAQ entry, so FAQ stands for that shape. `/catalog/…/552/` and the
-Bekhterev article are the heaviest members of their families.
+The thirteen families sum to all 828 built pages. The `press item` family exists
+because the coverage rule found it: eight `avtor/pressa-i-tv/…` pages sit a
+level deeper than the other author pages and matched no family on the first
+pass.
 
 | Shared asset | Measured | Budget |
 | --- | ---: | ---: |
@@ -100,6 +110,13 @@ exceptions they are, not used to set a ceiling for everything else.
 **Changing a limit.** Re-run the build, take the new measurement, update both
 the measured value and the limit, and explain the tradeoff in the pull request.
 Do not raise a limit merely to make a check pass.
+
+**What else is pinned.** `web-design.config.json` also requires
+`projectChecks` to run `npm --prefix site run check` from the repository root,
+and pins the root and `site` package scripts that command resolves to. Without
+that, a check could keep its exact command while the script behind it quietly
+stopped running the route tests. Changing how the site is built or tested is
+fine — update those pinned values in the same pull request.
 
 ## Manual checks
 

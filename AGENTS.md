@@ -62,7 +62,7 @@ npm run preflight                       # guard, тесты harness, сборк�
 `npm run check:repository`, `npm run test:harness`, `npm run check:project`
 (`npm --prefix site run check`), `npm run check:budget`.
 
-Бюджет веса измеряется по representative-страницам, а не по всему `dist/`:
+Бюджет веса измеряется по семействам маршрутов (тяжелейшая страница каждого), а не по всему `dist/`:
 сайт генерирует 828 страниц, поэтому суммарный вес всех HTML и изображений не
 отражает вес одной пользовательской страницы. Значения и обоснование —
 в `web-design.config.json` и `docs/testing.md`. Менять предел только по

@@ -19,7 +19,7 @@
    contract rejects a budget set below its own recorded measurement. */
 
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
-import { extname, join, relative, resolve } from "node:path";
+import { extname, join, relative, resolve, sep } from "node:path";
 import { gzipSync } from "node:zlib";
 import { loadConfig, resolveWithin } from "./config.mjs";
 
@@ -43,13 +43,43 @@ function overBudget(label, measured, limit) {
   return measured > limit ? [`${label}: ${measured} B exceeds ${limit} B`] : [];
 }
 
-function checkRepresentativePages(pages, output, report) {
+/* Measure every page of every family and hold each family's heaviest page to
+   its budget. Checking only a named sample would prove that one page is small
+   while any of the other 817 grew past it unnoticed, so the representative is
+   derived from the build rather than read from the config. Every page must
+   belong to exactly one family, so none is left unbudgeted. */
+function checkPageFamilies(families, output, files, report) {
   const failures = [];
+  const pages = files
+    .filter((file) => file.endsWith(".html"))
+    .map((file) => relative(output, file).split(sep).join("/"));
+  const claimed = new Map();
+
+  for (const family of families) {
+    const pattern = new RegExp(family.pattern);
+    let heaviest = { page: null, gzip: 0 };
+    let count = 0;
+    for (const page of pages) {
+      if (!pattern.test(page)) continue;
+      count += 1;
+      if (claimed.has(page)) {
+        failures.push(`${page} matches both "${claimed.get(page)}" and "${family.name}"`);
+        continue;
+      }
+      claimed.set(page, family.name);
+      const measured = gzipBytes(readFileSync(join(output, page)));
+      if (measured > heaviest.gzip) heaviest = { page, gzip: measured };
+    }
+    if (count === 0) {
+      failures.push(`Page family "${family.name}" matches no built page`);
+      continue;
+    }
+    report.push(`  ${family.name} (${count}): ${heaviest.gzip} B gzip / ${family.gzipBytes} B budget — ${heaviest.page}`);
+    failures.push(...overBudget(`Heaviest ${family.name} (${heaviest.page})`, heaviest.gzip, family.gzipBytes));
+  }
+
   for (const page of pages) {
-    const path = resolveWithin(output, page.file, `representative page ${page.name}`);
-    const measured = gzipBytes(readFileSync(path));
-    report.push(`  ${page.name}: ${measured} B gzip / ${page.gzipBytes} B budget`);
-    failures.push(...overBudget(`Critical HTML of ${page.name}`, measured, page.gzipBytes));
+    if (!claimed.has(page)) failures.push(`No page family covers ${page}`);
   }
   return failures;
 }
@@ -112,8 +142,8 @@ export function checkPerformance(root) {
     }
   }
 
-  report.push(`Critical HTML per representative page (${performance.representativePages.length} of ${files.filter((file) => file.endsWith(".html")).length} pages):`);
-  failures.push(...checkRepresentativePages(performance.representativePages, output, report));
+  report.push(`Critical HTML, heaviest page of each family (${files.filter((file) => file.endsWith(".html")).length} pages):`);
+  failures.push(...checkPageFamilies(performance.pageFamilies, output, files, report));
   report.push("Shared assets loaded by every page:");
   failures.push(...checkSharedAssets(performance.sharedAssets, output, report));
   report.push("Per-file ceilings:");
