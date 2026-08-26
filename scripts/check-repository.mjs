@@ -52,17 +52,22 @@ const PERMISSIONS_KEY = /^([ \t]*)(?:permissions|"permissions"|'permissions')[ \
 const READ_VALUES = new Set(["read", "none"]);
 
 /* This guard reads raw workflow text rather than a parsed YAML document, which
-   is only sound while the text of a key and its decoded value agree. YAML
-   spells a mapping key in five ways: a plain scalar; a single-quoted scalar,
-   whose only escape is '' and so cannot spell `permissions` as anything else;
-   a double-quoted scalar, which *does* decode escapes, so "permissions"
-   parses as `permissions`; an explicit `? key`; and indirectly through an
-   anchor, alias, or merge key. Only the first two read the same parsed and
-   unparsed, so the other three are refused outright — nothing in a GitHub
-   workflow needs them, and refusing is what keeps the text reading equivalent
-   to the parsed one instead of merely close to it. */
+   is only sound while a scalar's text and its decoded value agree. The
+   double-quoted style is the one YAML style that decodes escapes, so
+   "permissio\u006es" parses as the key `permissions` and
+   "${{ \x73ecrets.X }}" parses as a secrets expression — in both cases the
+   raw text hides what GitHub actually sees. Every double-quoted scalar
+   containing a backslash is therefore refused, key or value alike.
+
+   The remaining indirections are refused for the same reason: an explicit
+   `? key`, and anchors, aliases and merge keys, which move a mapping's content
+   somewhere the line-by-line reading never looks. Plain and single-quoted
+   scalars read identically parsed and unparsed — single quotes have no escape
+   but '' — so those stay. Nothing in a GitHub workflow needs the refused
+   forms, and refusing them is what keeps this text reading equivalent to the
+   parsed one rather than merely close to it. */
 const UNREADABLE_YAML = [
-  [/^[ \t]*"[^"\n]*\\[^"\n]*"[ \t]*:/m, "an escaped double-quoted key"],
+  [/"[^"\n]*\\[^"\n]*"/, "an escaped double-quoted scalar"],
   [/^[ \t]*\?(?:[ \t]|$)/m, "an explicit key"],
   [/^[ \t]*(?:<<|"<<"|'<<')[ \t]*:/m, "a merge key"],
   [/:[ \t]+[&*][A-Za-z_][\w-]*(?=[ \t]|$)/m, "a YAML anchor or alias"],

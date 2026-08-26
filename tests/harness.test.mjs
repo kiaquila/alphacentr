@@ -283,10 +283,12 @@ test("repository policy rejects YAML the guard does not decode", () => {
      differ is refused rather than read approximately. `\\u006e` decodes to `n`,
      which would otherwise spell `permissions` past a text-only match. */
   for (const [override, expected] of [
-    ['    "permissio\\u006es": write-all', /escaped double-quoted key/],
+    ['    "permissio\\u006es": write-all', /escaped double-quoted scalar/],
     ["    ? permissions\\n    : write-all", /explicit key/],
     ["    <<: *defaults", /merge key|anchor or alias/],
-    ["    permissions: &perms write-all", /anchor or alias/]
+    ["    permissions: &perms write-all", /anchor or alias/],
+    /* The same escape decoding hides a secrets expression in a value. */
+    ['    env:\\n      TOKEN: "${{ \\x73ecrets.DEPLOY_TOKEN }}"', /escaped double-quoted scalar/]
   ]) {
     withFixture((root) => {
       const path = join(root, ".github/workflows/ci.yml");
