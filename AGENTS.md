@@ -50,8 +50,7 @@
 Из корня репозитория:
 
 ```bash
-node scripts/check-repository.mjs
-npm --prefix alphacentr/site run check
+npm --prefix site run check
 ```
 
 Для визуальных изменений дополнительно проверять узкий (375 px) и широкий

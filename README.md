@@ -112,12 +112,11 @@ alphacentr/
 Из корня репозитория:
 
 ```bash
-node scripts/check-repository.mjs
-npm --prefix alphacentr/site run check
+npm --prefix site run check
 ```
 
 Локальный просмотр:
 
 ```bash
-npm --prefix alphacentr/site run dev
+npm --prefix site run dev
 ```

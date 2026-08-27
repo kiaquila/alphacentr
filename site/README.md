@@ -6,10 +6,10 @@
 ## Команды
 
 ```bash
-npm --prefix alphacentr/site run build   # собрать dist/
-npm --prefix alphacentr/site test        # проверки полноты и ссылок
-npm --prefix alphacentr/site run check   # сборка + тесты
-npm --prefix alphacentr/site run dev     # сборка и просмотр на localhost:4321
+npm run build   # собрать dist/
+npm test        # проверки полноты и ссылок
+npm run check   # сборка + тесты
+npm run dev     # сборка и просмотр на localhost:4321
 ```
 
 Зависимостей нет — `npm install` не требуется. Нужен Node 22.18 или новее.
@@ -132,8 +132,9 @@ HSTS, `X-Frame-Options` и прочее) — их пайплайн ассето�
 | Превью для ветки | `npm run stage:preview` |
 | Отслеживаемый путь | `alphacentr/*` |
 
-Репозиторий `kiaquila/web-design` подключён к Worker через Workers Builds.
-Учётные данные и токены живут только на стороне Cloudflare и в репозитории не
+Пути в таблице указаны относительно `kiaquila/web-design`: Worker пока
+собирается оттуда через Workers Builds, а не из этого репозитория. Учётные
+данные и токены живут только на стороне Cloudflare и в репозитории не
 хранятся.
 
 ## Вывод сборки
