@@ -393,6 +393,9 @@ test("metadata and commented-out CSS are not fetched", () => {
        attribute either. */
     '<div data-example="src=/assets/media/wide.webp"></div>',
     "<div data-example='style=background:url(/assets/media/wide.webp)'></div>",
+    /* href loads nothing on a plain element, and canonical is not a fetch. */
+    '<div href="/assets/media/wide.webp"></div>',
+    '<link rel="canonical" href="/assets/media/wide.webp" />',
     /* Raw-text element contents are data, not markup. */
     '<script type="application/ld+json">{"x":"<img src=\'/assets/media/wide.webp\'>"}</script>',
     "<textarea><img src=\"/assets/media/wide.webp\"></textarea>",

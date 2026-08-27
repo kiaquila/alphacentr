@@ -159,7 +159,21 @@ function assetPath(raw, baseDirectory) {
 const ATTRIBUTE_RUN = `(?:"[^"]*"|'[^']*'|[^>"'])*`;
 const STYLE_BLOCK = new RegExp(`<style\\b${ATTRIBUTE_RUN}>([\\s\\S]*?)</style\\s*>`, "gi");
 const START_TAG = new RegExp(`<([a-zA-Z][\\w-]*)(${ATTRIBUTE_RUN})>`, "g");
-const NAVIGATION_ELEMENTS = new Set(["a", "area", "base"]);
+const HREF_FETCHES = new Set(["link", "image", "use", "feimage"]);
+const FETCHING_RELS = new Set([
+  "apple-touch-icon", "icon", "manifest", "mask-icon", "modulepreload",
+  "prefetch", "preload", "shortcut", "stylesheet"
+]);
+
+/* Whether a <link>'s rel names a resource the browser loads. */
+function linkFetches(attributes) {
+  const rel = attributes.match(/\brel\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i);
+  if (!rel) return false;
+  return (rel[1] ?? rel[2] ?? rel[3] ?? "")
+    .toLowerCase()
+    .split(/\s+/)
+    .some((token) => FETCHING_RELS.has(token));
+}
 
 function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, unresolved) {
   let total = 0;
@@ -229,15 +243,17 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
         for (const url of cssUrls(value)) add(decodeCssEscapes(url), true);
         continue;
       }
-      /* `href` is navigation on <a>, <area> and <base> — the file is fetched
-         only if someone follows the link. Everywhere else it names a resource
-         the browser loads: <link>, and the SVG elements <image>, <use> and
-         <feImage>. Listing the navigation elements rather than the fetching
-         ones keeps an unfamiliar element counted rather than missed.
-         `xlink:href` is the older spelling of the same thing. */
+      /* `href` loads a resource only on some elements: <link>, and the SVG
+         elements that reference an image. On <a> it is navigation, and on a
+         <div> or a custom element it does nothing at all — counting those
+         would charge bytes the browser never requests, or fail the build on
+         markup that is perfectly valid. `xlink:href` is the older spelling. */
       const fetchKey = key === "xlink:href" ? "href" : key;
-      if (fetchKey === "href" && NAVIGATION_ELEMENTS.has(element)) continue;
+      if (fetchKey === "href" && !HREF_FETCHES.has(element)) continue;
       if (!["src", "poster", "srcset", "href"].includes(fetchKey)) continue;
+      /* A <link> fetches only for the rel values that name a resource;
+         `canonical` and `alternate` do not. */
+      if (fetchKey === "href" && element === "link" && !linkFetches(attributes)) continue;
       /* A srcset lists candidates as `url descriptor, url descriptor`; the
          browser fetches one of them, so every candidate counts. */
       const urls = fetchKey === "srcset"
