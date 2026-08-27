@@ -180,9 +180,12 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
   let total = 0;
   const seen = new Set();
   /* Count anything the build actually wrote, wherever it sits — a page-local
-     image resolves beside its page, not under assets/. Documents are excluded:
-     a link to another page is navigation, not a fetch. Shared assets are
+     image resolves beside its page, not under assets/. Shared assets are
      excluded because they are budgeted once, separately.
+
+     Documents are not excluded by type: navigation is already filtered out by
+     element, and `<iframe src>` or `<object data>` fetches an HTML document as
+     surely as an <img> fetches an image.
 
      `mustResolve` marks the attributes that name a file the browser fetches.
      One of those failing to resolve means this scanner could not read the
@@ -191,7 +194,7 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
      stay quiet while this page undercounted. */
   const add = (raw, mustResolve) => {
     const asset = assetPath(raw, pageDirectory);
-    if (!asset || asset.endsWith(".html") || seen.has(asset) || shared.has(asset)) return;
+    if (!asset || seen.has(asset) || shared.has(asset)) return;
     if (!sizes.has(asset)) {
       if (mustResolve) unresolved?.add(asset);
       return;

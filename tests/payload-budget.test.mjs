@@ -148,6 +148,23 @@ test("a page-local image resolves beside its own page", () => {
   });
 });
 
+test("an embedded document is a fetch, not navigation", () => {
+  /* <iframe src> and <object data> load an HTML document immediately; only
+     navigation is exempt, and that is filtered by element, not by file type. */
+  for (const markup of [
+    '<iframe src="/other/index.html"></iframe>',
+    '<object data="/other/index.html"></object>'
+  ]) {
+    withFixture((root) => {
+      write(root, "site/dist/other/index.html", `<!doctype html><title>Other</title>${"x".repeat(8000)}\n`);
+      write(root, "site/dist/index.html", `<!doctype html><title>Home</title>${markup}\n`);
+      const result = run(root, "check-performance-budget.mjs");
+      assert.equal(result.status, 1, `embedded document not counted: ${markup}`);
+      assert.match(result.stderr, /Media of home \(index\.html\): \d+ B exceeds 4096 B/);
+    });
+  }
+});
+
 test("a link to another page is navigation, not payload", () => {
   withFixture((root) => {
     write(
