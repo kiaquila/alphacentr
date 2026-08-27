@@ -372,6 +372,10 @@ test("metadata and commented-out CSS are not fetched", () => {
     /* Attribute-looking text content is not an attribute. */
     "<code>Example: style=background:url(/assets/media/wide.webp)</code>",
     "<code>src=/assets/media/wide.webp</code>",
+    /* Attribute-shaped text inside another attribute's value is not an
+       attribute either. */
+    '<div data-example="src=/assets/media/wide.webp"></div>',
+    "<div data-example='style=background:url(/assets/media/wide.webp)'></div>",
     /* Raw-text element contents are data, not markup. */
     '<script type="application/ld+json">{"x":"<img src=\'/assets/media/wide.webp\'>"}</script>',
     "<textarea><img src=\"/assets/media/wide.webp\"></textarea>",

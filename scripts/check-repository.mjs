@@ -248,6 +248,13 @@ for (const npmrc of files.filter((file) => /(?:^|\/)\.npmrc$/.test(file))) {
   failures.push(`Tracked .npmrc can redirect the package scripts: ${npmrc}`);
 }
 
+/* npm prefers npm-shrinkwrap.json over package-lock.json, so a shrinkwrap
+   silently decides what `npm ci` installs. This project pins with lockfiles;
+   a shrinkwrap here would only be a way around them. */
+for (const shrinkwrap of files.filter((file) => /(?:^|\/)npm-shrinkwrap\.json$/.test(file))) {
+  failures.push(`Tracked npm-shrinkwrap.json overrides the lockfile: ${shrinkwrap}`);
+}
+
 for (const workflow of files.filter((file) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(file))) {
   checkWorkflow(workflow);
 }

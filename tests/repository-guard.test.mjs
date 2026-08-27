@@ -197,6 +197,20 @@ test("a dangling symlink is still rejected", () => {
   });
 });
 
+test("a tracked npm-shrinkwrap.json is refused", () => {
+  /* npm prefers a shrinkwrap over package-lock.json, so it silently decides
+     what `npm ci` installs. */
+  for (const path of ["npm-shrinkwrap.json", "site/npm-shrinkwrap.json"]) {
+    withFixture((root) => {
+      write(root, path, '{"name":"x","lockfileVersion":3}\n');
+      spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
+      const result = run(root, "check-repository.mjs");
+      assert.equal(result.status, 1, `accepted ${path}`);
+      assert.match(result.stderr, /npm-shrinkwrap\.json overrides the lockfile/);
+    });
+  }
+});
+
 test("a tracked .npmrc is refused whatever it contains", () => {
   /* npm config can replace the shell that runs `npm run preflight`, and its
      ini parser accepts quoted keys and comment-truncated keys. Reading the

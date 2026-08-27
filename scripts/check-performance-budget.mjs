@@ -158,6 +158,7 @@ function assetPath(raw, baseDirectory) {
    raw-text strip, which must agree on where a start tag ends. */
 const ATTRIBUTE_RUN = `(?:"[^"]*"|'[^']*'|[^>"'])*`;
 const STYLE_BLOCK = new RegExp(`<style\\b${ATTRIBUTE_RUN}>([\\s\\S]*?)</style\\s*>`, "gi");
+const START_TAG = new RegExp(`<([a-zA-Z][\\w-]*)(${ATTRIBUTE_RUN})>`, "g");
 
 function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, unresolved) {
   let total = 0;
@@ -199,33 +200,6 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
       "$1"
     );
 
-  /* One matcher for every fetch-producing attribute. The name must start an
-     attribute — preceded by whitespace, a quote or a slash — so `data-src`,
-     which the browser does not fetch, is not read as `src`. HTML allows exactly
-     three attribute-value forms — double-quoted, single-quoted, and unquoted
-     (no whitespace, quotes, =, <, > or backtick) — so covering all three is
-     complete rather than another guess at a spelling. A srcset lists candidates
-     as `url descriptor, url descriptor`; the browser fetches one of them, so
-     every candidate counts toward what the page can cost.
-
-     `href` is deliberately not in this set: on an anchor it is navigation, and
-     the file is fetched only if someone follows the link. It is scanned below,
-     on <link> elements alone, where it does name an immediate fetch. */
-  const scan = (text, attributes) => {
-    const pattern = new RegExp(
-      `(?:^|[\\s"'/])(${attributes})\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\`]+))`,
-      "gi"
-    );
-    for (const match of text.matchAll(pattern)) {
-      const [, attribute, doubleQuoted, singleQuoted, unquoted] = match;
-      const value = decodeEntities(doubleQuoted ?? singleQuoted ?? unquoted ?? "");
-      const urls = attribute.toLowerCase() === "srcset"
-        ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
-        : [value.trim()];
-      for (const url of urls) add(url, true);
-    }
-  };
-
   /* Take the <style> contents out of the markup before scanning tags. They are
      CSS, not markup: an `<img src=…>` written inside a CSS string is text the
      browser never fetches. The contents are scanned as CSS below. */
@@ -235,22 +209,38 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
     return " ";
   });
 
-  /* Scan start tags rather than the whole document: `style=…` or `src=…`
-     appearing in text content — inside a <code> sample, say — is not an
-     attribute and fetches nothing. The tag pattern steps over quoted values so
-     a `>` inside one (`alt="a > b"`) does not end the tag early. */
-  const START_TAG = new RegExp(`<([a-zA-Z][\\w-]*)(${ATTRIBUTE_RUN})>`, "g");
+  /* Walk a start tag's attributes as name/value pairs rather than pattern
+     matching over the whole tag: advancing past each value is what stops
+     attribute-shaped text *inside* a value — `data-example="src=/a.webp"` —
+     from being read as another attribute.
+
+     HTML allows exactly three value forms — double-quoted, single-quoted, and
+     unquoted (no whitespace, quotes, =, <, > or backtick) — so covering all
+     three is complete rather than a guess at a spelling. */
+  const ATTRIBUTE = /([a-zA-Z_:][\w:.-]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+
   for (const [, name, attributes] of markup.matchAll(START_TAG)) {
-    scan(attributes, "src|poster|srcset");
-    if (name.toLowerCase() === "link") scan(attributes, "href");
-    for (const style of attributes.matchAll(
-      /(?:^|[\s"'\/])style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
-    )) {
-      for (const url of cssUrls(style[1] ?? style[2] ?? style[3] ?? "")) {
-        add(decodeCssEscapes(decodeEntities(url)), true);
+    const element = name.toLowerCase();
+    for (const [, attribute, doubleQuoted, singleQuoted, unquoted] of attributes.matchAll(ATTRIBUTE)) {
+      const key = attribute.toLowerCase();
+      const value = decodeEntities(doubleQuoted ?? singleQuoted ?? unquoted ?? "");
+      if (key === "style") {
+        for (const url of cssUrls(value)) add(decodeCssEscapes(url), true);
+        continue;
       }
+      /* `href` names an immediate fetch only on <link>; on an anchor it is
+         navigation, and the file is fetched only if someone follows it. */
+      if (key === "href" && element !== "link") continue;
+      if (!["src", "poster", "srcset", "href"].includes(key)) continue;
+      /* A srcset lists candidates as `url descriptor, url descriptor`; the
+         browser fetches one of them, so every candidate counts. */
+      const urls = key === "srcset"
+        ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
+        : [value.trim()];
+      for (const url of urls) add(url, true);
     }
   }
+
   /* A <style> block's contents are CSS, fetched exactly like an <img> and
      belonging to this page rather than to the shared stylesheet. */
   for (const contents of styleBlocks) {
