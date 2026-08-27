@@ -170,6 +170,25 @@ export function codexNativeReviewResult(reviews = [], reviewComments = [], headS
   return results.includes("fail") ? "fail" : "pass";
 }
 
+export function codexNativeVerdictForHead(
+  reviews = [],
+  reviewComments = [],
+  headSha,
+  requestMarker
+) {
+  // Blocking findings are bound to the head, not to a request window. Repeating
+  // "@codex review" for the same unchanged SHA opens a newer window, so scoping
+  // the verdict to it would discard blockers recorded under an earlier marker.
+  // Classification already requires review.commit_id === headSha, so evaluating
+  // every review here stays head-bound.
+  if (codexNativeReviewResult(reviews, reviewComments, headSha) === "fail") return "fail";
+
+  const reviewsAfterRequest = reviews.filter((review) =>
+    isStrictlyAfterCodexReviewRequest(review.submitted_at, requestMarker)
+  );
+  return codexNativeReviewResult(reviewsAfterRequest, reviewComments, headSha);
+}
+
 export function isAcceptableCodexSummaryComment(comment, headSha, requestedAt, sourceCommentId) {
   const body = String(comment?.body || "");
   const shortSha = String(headSha || "").slice(0, 10);

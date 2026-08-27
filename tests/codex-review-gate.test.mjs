@@ -26,6 +26,7 @@ const {
   isStrictlyAfterCodexReviewRequest,
   isTrustedAssociation,
   codexNativeReviewResult,
+  codexNativeVerdictForHead,
   latestCodexReviewRequestMarker,
   latestTrustedCodexReviewCommand
 } = helpers;
@@ -442,4 +443,66 @@ test("rerun helper calls the Actions endpoint for a failed head-bound run", asyn
     },
     { path: "/repos/owner/repo/actions/runs/42/rerun", method: "POST" }
   ]);
+});
+
+test("a repeated same-head request does not drop earlier blocking findings", () => {
+  const marker = {
+    sha: headSha,
+    requestedAt: "2026-08-05T12:05:00Z",
+    sourceCommentId: "500",
+    sourceCommentCreatedAt: "2026-08-05T12:05:00Z"
+  };
+  const blockingBeforeMarker = {
+    id: 10,
+    commit_id: headSha,
+    state: "COMMENTED",
+    submitted_at: "2026-08-05T12:01:00Z",
+    user: codexUser
+  };
+  const cleanAfterMarker = {
+    id: 11,
+    commit_id: headSha,
+    state: "COMMENTED",
+    submitted_at: "2026-08-05T12:06:00Z",
+    user: codexUser
+  };
+  const reviewComments = [{
+    pull_request_review_id: 10,
+    body: "P1 regression",
+    user: codexUser
+  }];
+
+  assert.equal(
+    codexNativeVerdictForHead(
+      [blockingBeforeMarker, cleanAfterMarker],
+      reviewComments,
+      headSha,
+      marker
+    ),
+    "fail",
+    "a newer request window must not clear a blocker recorded under an earlier marker"
+  );
+
+  assert.equal(
+    codexNativeVerdictForHead([cleanAfterMarker], [], headSha, marker),
+    "pass",
+    "a clean current-head review after the marker still passes"
+  );
+
+  assert.equal(
+    codexNativeVerdictForHead([blockingBeforeMarker], reviewComments, headSha, marker),
+    "fail",
+    "a blocker alone fails even with no review inside the window"
+  );
+
+  assert.equal(
+    codexNativeVerdictForHead(
+      [{ ...cleanAfterMarker, commit_id: "0".repeat(40) }],
+      [],
+      headSha,
+      marker
+    ),
+    null,
+    "reviews for another head are ignored entirely"
+  );
 });

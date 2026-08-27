@@ -2,9 +2,8 @@
 
 import { appendFileSync } from "node:fs";
 import {
+  codexNativeVerdictForHead,
   isAcceptableCodexSummaryComment,
-  isStrictlyAfterCodexReviewRequest,
-  codexNativeReviewResult,
   latestCodexReviewRequestMarker,
   latestTrustedCodexReviewCommand
 } from "./codex-review-helpers.mjs";
@@ -78,13 +77,11 @@ async function fetchEvidence() {
     listPaginated(`/repos/${owner}/${repo}/pulls/${prNumber}/reviews`),
     listPaginated(`/repos/${owner}/${repo}/pulls/${prNumber}/comments`)
   ]);
-  const reviewsAfterRequest = reviews.filter((review) =>
-    isStrictlyAfterCodexReviewRequest(review.submitted_at, requestMarker)
-  );
-  const nativeResult = codexNativeReviewResult(
-    reviewsAfterRequest,
+  const nativeResult = codexNativeVerdictForHead(
+    reviews,
     reviewComments,
-    headSha
+    headSha,
+    requestMarker
   );
   if (nativeResult) return nativeResult;
 
