@@ -323,6 +323,23 @@ test("a quoted attribute may contain a closing angle bracket", () => {
   });
 });
 
+test("href fetches on elements that are not navigation", () => {
+  /* `href` is navigation on <a>, <area> and <base>; on <link> and the SVG
+     resource elements it names a file the browser loads. */
+  for (const markup of [
+    '<svg><image href="/assets/media/wide.webp"></image></svg>',
+    '<svg><use xlink:href="/assets/media/wide.webp" /></svg>'
+  ]) {
+    withFixture((root) => {
+      write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
+      write(root, "site/dist/index.html", `<!doctype html><title>Home</title>${markup}\n`);
+      const result = run(root, "check-performance-budget.mjs");
+      assert.equal(result.status, 1, `href not counted: ${markup}`);
+      assert.match(result.stderr, /Media of home \(index\.html\): \d+ B exceeds 4096 B/);
+    });
+  }
+});
+
 test("a <link> href is an immediate fetch and is counted", () => {
   withFixture((root) => {
     write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));

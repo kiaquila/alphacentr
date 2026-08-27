@@ -159,6 +159,7 @@ function assetPath(raw, baseDirectory) {
 const ATTRIBUTE_RUN = `(?:"[^"]*"|'[^']*'|[^>"'])*`;
 const STYLE_BLOCK = new RegExp(`<style\\b${ATTRIBUTE_RUN}>([\\s\\S]*?)</style\\s*>`, "gi");
 const START_TAG = new RegExp(`<([a-zA-Z][\\w-]*)(${ATTRIBUTE_RUN})>`, "g");
+const NAVIGATION_ELEMENTS = new Set(["a", "area", "base"]);
 
 function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, unresolved) {
   let total = 0;
@@ -228,13 +229,18 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
         for (const url of cssUrls(value)) add(decodeCssEscapes(url), true);
         continue;
       }
-      /* `href` names an immediate fetch only on <link>; on an anchor it is
-         navigation, and the file is fetched only if someone follows it. */
-      if (key === "href" && element !== "link") continue;
-      if (!["src", "poster", "srcset", "href"].includes(key)) continue;
+      /* `href` is navigation on <a>, <area> and <base> — the file is fetched
+         only if someone follows the link. Everywhere else it names a resource
+         the browser loads: <link>, and the SVG elements <image>, <use> and
+         <feImage>. Listing the navigation elements rather than the fetching
+         ones keeps an unfamiliar element counted rather than missed.
+         `xlink:href` is the older spelling of the same thing. */
+      const fetchKey = key === "xlink:href" ? "href" : key;
+      if (fetchKey === "href" && NAVIGATION_ELEMENTS.has(element)) continue;
+      if (!["src", "poster", "srcset", "href"].includes(fetchKey)) continue;
       /* A srcset lists candidates as `url descriptor, url descriptor`; the
          browser fetches one of them, so every candidate counts. */
-      const urls = key === "srcset"
+      const urls = fetchKey === "srcset"
         ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
         : [value.trim()];
       for (const url of urls) add(url, true);
