@@ -45,7 +45,8 @@
 ## Что где лежит
 
 ```text
-alphacentr/
+.
+├── .github/           # CI: сборка с тестами и скан зависимостей
 ├── README.md          # этот файл — контекст, концепция, решения
 ├── AGENTS.md          # правила работы с проектом
 ├── CONTENT-AUDIT.md   # провенанс контента, исключения, открытые вопросы
@@ -112,12 +113,11 @@ alphacentr/
 Из корня репозитория:
 
 ```bash
-node scripts/check-repository.mjs
-npm --prefix alphacentr/site run check
+npm --prefix site run check
 ```
 
 Локальный просмотр:
 
 ```bash
-npm --prefix alphacentr/site run dev
+npm --prefix site run dev
 ```
