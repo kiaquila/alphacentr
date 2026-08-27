@@ -160,6 +160,10 @@ const ATTRIBUTE_RUN = `(?:"[^"]*"|'[^']*'|[^>"'])*`;
 const STYLE_BLOCK = new RegExp(`<style\\b${ATTRIBUTE_RUN}>([\\s\\S]*?)</style\\s*>`, "gi");
 const START_TAG = new RegExp(`<([a-zA-Z][\\w-]*)(${ATTRIBUTE_RUN})>`, "g");
 const HREF_FETCHES = new Set(["link", "image", "use", "feimage"]);
+/* HTML separates tokens on ASCII whitespace only. JavaScript's `\s` also
+   matches NBSP and other Unicode spaces, which HTML does not treat as
+   separators, so token lists are split on this class instead. */
+const ASCII_WHITESPACE = /[ \t\n\f\r]+/;
 const FETCHING_RELS = new Set([
   "apple-touch-icon", "icon", "manifest", "mask-icon", "modulepreload",
   "prefetch", "preload", "shortcut", "stylesheet"
@@ -169,7 +173,7 @@ const FETCHING_RELS = new Set([
    value, not the raw tag. */
 function linkFetches(rel) {
   if (!rel) return false;
-  return rel.toLowerCase().split(/\s+/).some((token) => FETCHING_RELS.has(token));
+  return rel.toLowerCase().split(ASCII_WHITESPACE).some((token) => FETCHING_RELS.has(token));
 }
 
 function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, unresolved) {
@@ -250,13 +254,16 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
       for (const url of cssUrls(style)) add(decodeCssEscapes(url), true);
     }
 
-    for (const key of ["src", "poster", "srcset", "href", "xlink:href"]) {
+    for (const key of ["src", "poster", "srcset", "href", "xlink:href", "data"]) {
       if (!attributes.has(key)) continue;
       /* `href` loads a resource only on <link> and the SVG elements that
          reference an image. On <a> it is navigation, and on a <div> or a
          custom element it does nothing at all. `xlink:href` is the older
          spelling. A <link> fetches only for rel values that name a resource;
          `canonical` and `alternate` do not. */
+      /* `data` names a resource only on <object>; elsewhere `data-*` and the
+         bare attribute carry metadata. */
+      if (key === "data" && element !== "object") continue;
       const fetchKey = key === "xlink:href" ? "href" : key;
       if (fetchKey === "href") {
         if (!HREF_FETCHES.has(element)) continue;
@@ -266,7 +273,7 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
       /* A srcset lists candidates as `url descriptor, url descriptor`; the
          browser fetches one of them, so every candidate counts. */
       const urls = fetchKey === "srcset"
-        ? value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0])
+        ? value.split(",").map((candidate) => candidate.trim().split(ASCII_WHITESPACE)[0])
         : [value.trim()];
       for (const url of urls) add(url, true);
     }

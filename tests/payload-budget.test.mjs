@@ -346,7 +346,11 @@ test("href fetches on elements that are not navigation", () => {
      resource elements it names a file the browser loads. */
   for (const markup of [
     '<svg><image href="/assets/media/wide.webp"></image></svg>',
-    '<svg><use xlink:href="/assets/media/wide.webp" /></svg>'
+    '<svg><use xlink:href="/assets/media/wide.webp" /></svg>',
+    /* <object data> loads its resource. */
+    '<object data="/assets/media/wide.webp"></object>',
+    /* HTML separates rel tokens on ASCII whitespace, and JS \s is wider. */
+    '<link rel="stylesheet canonical" href="/assets/media/wide.webp" />'
   ]) {
     withFixture((root) => {
       write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
@@ -414,6 +418,10 @@ test("metadata and commented-out CSS are not fetched", () => {
     /* href loads nothing on a plain element, and canonical is not a fetch. */
     '<div href="/assets/media/wide.webp"></div>',
     '<link rel="canonical" href="/assets/media/wide.webp" />',
+    /* `data` is metadata anywhere but <object>. */
+    '<div data="/assets/media/wide.webp"></div>',
+    /* A non-breaking space is not an HTML token separator. */
+    '<link rel="stylesheet&nbsp;canonical" href="/assets/media/wide.webp" />',
     /* Raw-text element contents are data, not markup. */
     '<script type="application/ld+json">{"x":"<img src=\'/assets/media/wide.webp\'>"}</script>',
     "<textarea><img src=\"/assets/media/wide.webp\"></textarea>",
