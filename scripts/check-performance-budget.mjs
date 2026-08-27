@@ -165,14 +165,11 @@ const FETCHING_RELS = new Set([
   "prefetch", "preload", "shortcut", "stylesheet"
 ]);
 
-/* Whether a <link>'s rel names a resource the browser loads. */
-function linkFetches(attributes) {
-  const rel = attributes.match(/\brel\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i);
+/* Whether a <link>'s rel names a resource the browser loads. Takes the parsed
+   value, not the raw tag. */
+function linkFetches(rel) {
   if (!rel) return false;
-  return (rel[1] ?? rel[2] ?? rel[3] ?? "")
-    .toLowerCase()
-    .split(/\s+/)
-    .some((token) => FETCHING_RELS.has(token));
+  return rel.toLowerCase().split(/\s+/).some((token) => FETCHING_RELS.has(token));
 }
 
 function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, unresolved) {
@@ -234,26 +231,38 @@ function referencedMediaBytes(html, sizes, shared, pageDirectory, discovered, un
      three is complete rather than a guess at a spelling. */
   const ATTRIBUTE = /([a-zA-Z_:][\w:.-]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
 
-  for (const [, name, attributes] of markup.matchAll(START_TAG)) {
+  for (const [, name, attributeRun] of markup.matchAll(START_TAG)) {
     const element = name.toLowerCase();
-    for (const [, attribute, doubleQuoted, singleQuoted, unquoted] of attributes.matchAll(ATTRIBUTE)) {
+    /* Tokenize the whole tag once, then decide from the parsed attributes.
+       Re-scanning the raw run for a second attribute would reintroduce exactly
+       what tokenizing prevents — `data-example="rel=canonical"` being read as
+       the rel. HTML keeps the first of duplicate attributes, so this does. */
+    const attributes = new Map();
+    for (const [, attribute, doubleQuoted, singleQuoted, unquoted] of attributeRun.matchAll(ATTRIBUTE)) {
       const key = attribute.toLowerCase();
-      const value = decodeEntities(doubleQuoted ?? singleQuoted ?? unquoted ?? "");
-      if (key === "style") {
-        for (const url of cssUrls(value)) add(decodeCssEscapes(url), true);
-        continue;
+      if (!attributes.has(key)) {
+        attributes.set(key, decodeEntities(doubleQuoted ?? singleQuoted ?? unquoted ?? ""));
       }
-      /* `href` loads a resource only on some elements: <link>, and the SVG
-         elements that reference an image. On <a> it is navigation, and on a
-         <div> or a custom element it does nothing at all — counting those
-         would charge bytes the browser never requests, or fail the build on
-         markup that is perfectly valid. `xlink:href` is the older spelling. */
-      const fetchKey = key === "xlink:href" ? "href" : key;
-      if (fetchKey === "href" && !HREF_FETCHES.has(element)) continue;
-      if (!["src", "poster", "srcset", "href"].includes(fetchKey)) continue;
-      /* A <link> fetches only for the rel values that name a resource;
+    }
+
+    const style = attributes.get("style");
+    if (style) {
+      for (const url of cssUrls(style)) add(decodeCssEscapes(url), true);
+    }
+
+    for (const key of ["src", "poster", "srcset", "href", "xlink:href"]) {
+      if (!attributes.has(key)) continue;
+      /* `href` loads a resource only on <link> and the SVG elements that
+         reference an image. On <a> it is navigation, and on a <div> or a
+         custom element it does nothing at all. `xlink:href` is the older
+         spelling. A <link> fetches only for rel values that name a resource;
          `canonical` and `alternate` do not. */
-      if (fetchKey === "href" && element === "link" && !linkFetches(attributes)) continue;
+      const fetchKey = key === "xlink:href" ? "href" : key;
+      if (fetchKey === "href") {
+        if (!HREF_FETCHES.has(element)) continue;
+        if (element === "link" && !linkFetches(attributes.get("rel"))) continue;
+      }
+      const value = attributes.get(key);
       /* A srcset lists candidates as `url descriptor, url descriptor`; the
          browser fetches one of them, so every candidate counts. */
       const urls = fetchKey === "srcset"

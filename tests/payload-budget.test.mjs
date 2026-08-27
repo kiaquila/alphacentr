@@ -323,6 +323,24 @@ test("a quoted attribute may contain a closing angle bracket", () => {
   });
 });
 
+test("rel is read from the parsed attributes, not the raw tag", () => {
+  /* Metadata that merely contains `rel=…` must not stand in for the real one. */
+  for (const [markup, expected] of [
+    ['<link data-example="rel=canonical" rel="stylesheet" href="/assets/media/wide.webp" />', 1],
+    ['<link data-example="rel=stylesheet" rel="canonical" href="/assets/media/wide.webp" />', 0]
+  ]) {
+    withFixture((root) => {
+      write(root, "site/dist/assets/media/wide.webp", randomBytes(6 * 1024));
+      const config = readConfig(root);
+      config.performance.unreferencedMedia = ["assets/media/cover.webp", "assets/media/wide.webp"];
+      writeConfig(root, config);
+      write(root, "site/dist/index.html", `<!doctype html><title>Home</title>${markup}\n`);
+      const result = run(root, "check-performance-budget.mjs");
+      assert.equal(result.status, expected, `${markup}\n${result.stderr}`);
+    });
+  }
+});
+
 test("href fetches on elements that are not navigation", () => {
   /* `href` is navigation on <a>, <area> and <base>; on <link> and the SVG
      resource elements it names a file the browser loads. */
