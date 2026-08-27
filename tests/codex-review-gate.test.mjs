@@ -25,7 +25,7 @@ const {
   isCodexReviewCommandForHead,
   isStrictlyAfterCodexReviewRequest,
   isTrustedAssociation,
-  latestCodexNativeReviewResult,
+  codexNativeReviewResult,
   latestCodexReviewRequestMarker,
   latestTrustedCodexReviewCommand
 } = helpers;
@@ -266,7 +266,7 @@ test("Codex no-findings summaries must name the reviewed head", () => {
   assert.equal(isAcceptableCodexSummaryComment({ ...summary, body: summary.body.replace(headSha.slice(0, 10), "0000000000") }, headSha), false);
 });
 
-test("the latest current-head native Codex result wins", () => {
+test("an unresolved blocking finding survives a later clean review", () => {
   const olderPass = {
     id: 1,
     commit_id: headSha,
@@ -279,13 +279,13 @@ test("the latest current-head native Codex result wins", () => {
     id: 2,
     submitted_at: "2026-08-05T12:02:00Z"
   };
-  assert.equal(latestCodexNativeReviewResult([olderPass, newerFail], [{
+  assert.equal(codexNativeReviewResult([olderPass, newerFail], [{
     pull_request_review_id: 2,
     body: "P1 regression",
     user: codexUser
   }], headSha), "fail");
   assert.equal(
-    latestCodexNativeReviewResult([
+    codexNativeReviewResult([
       { ...olderPass, submitted_at: "2026-08-05T12:03:00Z" },
       { ...newerFail, submitted_at: "2026-08-05T12:03:00Z" }
     ], [{
@@ -294,7 +294,28 @@ test("the latest current-head native Codex result wins", () => {
       user: codexUser
     }], headSha),
     "fail",
-    "a higher native review ID wins a same-second tie"
+    "a same-second pair still fails on the blocking review"
+  );
+
+  const laterClean = {
+    ...olderPass,
+    id: 3,
+    submitted_at: "2026-08-05T12:04:00Z"
+  };
+  assert.equal(
+    codexNativeReviewResult([newerFail, laterClean], [{
+      pull_request_review_id: 2,
+      body: "P1 regression",
+      user: codexUser
+    }], headSha),
+    "fail",
+    "a later clean review does not clear an earlier unresolved P0-P2 finding"
+  );
+
+  assert.equal(
+    codexNativeReviewResult([olderPass, laterClean], [], headSha),
+    "pass",
+    "with no blocking finding on this head the gate still passes"
   );
 });
 

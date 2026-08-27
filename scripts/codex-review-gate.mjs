@@ -4,7 +4,7 @@ import { appendFileSync } from "node:fs";
 import {
   isAcceptableCodexSummaryComment,
   isStrictlyAfterCodexReviewRequest,
-  latestCodexNativeReviewResult,
+  codexNativeReviewResult,
   latestCodexReviewRequestMarker,
   latestTrustedCodexReviewCommand
 } from "./codex-review-helpers.mjs";
@@ -81,7 +81,7 @@ async function fetchEvidence() {
   const reviewsAfterRequest = reviews.filter((review) =>
     isStrictlyAfterCodexReviewRequest(review.submitted_at, requestMarker)
   );
-  const nativeResult = latestCodexNativeReviewResult(
+  const nativeResult = codexNativeReviewResult(
     reviewsAfterRequest,
     reviewComments,
     headSha

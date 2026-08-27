@@ -159,18 +159,15 @@ export function classifyCodexNativeReview(review, reviewComments = [], headSha) 
   return review.state === "APPROVED" || review.state === "COMMENTED" ? "pass" : null;
 }
 
-export function latestCodexNativeReviewResult(reviews = [], reviewComments = [], headSha) {
-  return reviews
-    .map((review) => ({
-      review,
-      result: classifyCodexNativeReview(review, reviewComments, headSha)
-    }))
-    .filter((entry) => entry.result !== null)
-    .sort((left, right) => {
-      const bySubmissionTime = Date.parse(right.review.submitted_at || "") -
-        Date.parse(left.review.submitted_at || "");
-      return bySubmissionTime || compareNumericIds(right.review.id, left.review.id);
-    })[0]?.result || null;
+export function codexNativeReviewResult(reviews = [], reviewComments = [], headSha) {
+  const results = reviews
+    .map((review) => classifyCodexNativeReview(review, reviewComments, headSha))
+    .filter((result) => result !== null);
+  if (results.length === 0) return null;
+  // A later clean review does not clear an earlier blocking finding on the same
+  // head: resolving a P0-P2 finding requires a code change, and that moves the
+  // head SHA. Any fail for this exact head therefore keeps the gate closed.
+  return results.includes("fail") ? "fail" : "pass";
 }
 
 export function isAcceptableCodexSummaryComment(comment, headSha, requestedAt, sourceCommentId) {
