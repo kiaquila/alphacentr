@@ -216,6 +216,15 @@ export function isAcceptableCodexSummaryComment(comment, headSha, requestedAt, s
 }
 
 export function hasUnresolvedCodexFindings(threads = []) {
-  return threads.some((thread) => !thread.isResolved &&
-    isTrustedCodexLogin(thread.comments?.nodes?.[0]?.author?.login));
+  return threads.some((thread) => {
+    const finding = thread.comments?.nodes?.[0];
+    const author = finding?.author;
+    // GraphQL Bot.login omits the REST API's [bot] suffix. Require the Bot
+    // type before normalizing that representation to the trusted identity.
+    const trusted = author?.__typename === "Bot" &&
+      isTrustedCodexLogin(`${String(author.login || "").replace(/\[bot\]$/i, "")}[bot]`);
+    if (thread.isResolved || !trusted) return false;
+    const priority = extractCodexPriority(finding.body);
+    return priority === null || priority <= 2;
+  });
 }

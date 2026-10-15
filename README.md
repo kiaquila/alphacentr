@@ -128,8 +128,10 @@ Run the gate regression suite with `node --test tests/*.test.mjs` (also run by
 Project CI). Review evidence remains bound to the requested PR head and the
 trusted `chatgpt-codex-connector[bot]` identity. Legacy no-findings comments and
 native `codex-review-receipt:v1` comments require an explicit clean verdict and
-the reviewed commit. Formal native reviews remain supported. Unresolved Codex
-review threads block the gate, including findings from an earlier head.
+the reviewed commit. Formal native reviews remain supported. Unresolved P0-P2
+or unclassified Codex review threads block the gate, including findings from an
+earlier head. P3 advisories retain their non-blocking behavior. GraphQL thread
+authors must have the `Bot` type and the trusted Codex login.
 
 Created and edited receipt/summary comments wake the trusted default-branch
 gate. The mutable `codex-pull-request-review-summary` / `codex-review-state:v1`

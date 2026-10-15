@@ -65,7 +65,7 @@ async function fetchReviewThreads() {
         query: `query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
           repository(owner: $owner, name: $repo) { pullRequest(number: $number) {
             reviewThreads(first: 100, after: $cursor) {
-              nodes { isResolved comments(first: 1) { nodes { author { login } } } }
+              nodes { isResolved comments(first: 1) { nodes { body author { login __typename } } } }
               pageInfo { hasNextPage endCursor }
             }
           } }

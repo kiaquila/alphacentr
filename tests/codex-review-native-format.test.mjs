@@ -243,9 +243,16 @@ test("an API error during the final head check cannot retain a successful verdic
 });
 
 test("actual gate keeps unresolved findings across heads and request windows", () => {
-  const finding = { isResolved: false, comments: { nodes: [{ author: user }] } };
+  const author = { login: "chatgpt-codex-connector", __typename: "Bot" };
+  const finding = { isResolved: false, comments: { nodes: [{ author, body: "P2 blocking finding" }] } };
   assert.equal(executeGate({ threads: [finding] }).status, 1);
   assert.equal(executeGate({ threads: [{ ...finding, isResolved: true }] }).status, 0);
+  for (const body of ["P0 critical finding", "P1 urgent finding", "Unclassified finding"]) {
+    assert.equal(executeGate({ threads: [{ ...finding, comments: { nodes: [{ author, body }] } }] }).status, 1);
+  }
+  assert.equal(executeGate({ threads: [{ ...finding, comments: { nodes: [{ author, body: "P3 advisory" }] } }] }).status, 0);
+  assert.equal(executeGate({ threads: [{ ...finding, comments: { nodes: [{ author: { ...author, __typename: "User" }, body: "P2 spoofed" }] } }] }).status, 0);
+  assert.equal(executeGate({ threads: [{ ...finding, comments: { nodes: [{ author: { ...author, login: "fake-codex" }, body: "P2 spoofed" }] } }] }).status, 0);
   assert.equal(executeGate({ reviews: [{ id: 20, commit_id: headSha, state: "COMMENTED", user, submitted_at: "2026-10-15T21:29:00Z" }],
     reviewComments: [{ pull_request_review_id: 20, user, body: "P2 finding before the latest request" }] }).status, 1);
 });
