@@ -44,7 +44,8 @@ const comment = {
 const acceptable = (candidate) => isAcceptableCodexSummaryComment(candidate, headSha, requestedAt, 30);
 
 test("native receipt, full SHA receipt, and legacy remain explicit positive evidence", () => {
-  for (const body of [receipt, legacy, receipt.replace("2667f79cd7`", `${headSha}\``), legacy.replace(":rocket:", "Keep it up!")]) {
+  for (const body of [receipt, legacy, receipt.replace("2667f79cd7`", `${headSha}\``),
+    ...["Keep it up!", "Bravo.", "Looks great.", "🎉"].map((suffix) => legacy.replace(":rocket:", suffix))]) {
     assert.equal(acceptable({ ...comment, body }), true, body);
   }
 });
@@ -60,6 +61,7 @@ test("receipt evidence rejects spoofed, stale, malformed, ambiguous and negative
     receipt.replace("Didn't find any major issues.", "Review in progress."),
     receipt.replace("Didn't find any major issues.", "Completed. 👍"),
     receipt.replace(":rocket:", "But a blocking problem remains."),
+    receipt.replace(":rocket:", "Found an unresolved issue."),
     receipt.replace("v1 -->", "v2 -->"),
     receipt.replace("v1 -->", "v1"),
     `<!-- codex-review-receipt:v1 -->\n${receipt}`,
