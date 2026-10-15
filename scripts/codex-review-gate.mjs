@@ -3,6 +3,7 @@
 import { appendFileSync } from "node:fs";
 import {
   codexNativeVerdictForHead,
+  hasUnresolvedCodexFindings,
   isAcceptableCodexSummaryComment,
   latestCodexReviewRequestMarker,
   latestTrustedCodexReviewCommand
@@ -53,6 +54,35 @@ async function fetchPull() {
   return request(`/repos/${owner}/${repo}/pulls/${prNumber}`);
 }
 
+async function fetchReviewThreads() {
+  const threads = [];
+  let cursor = null;
+  do {
+    const response = await fetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        query: `query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+          repository(owner: $owner, name: $repo) { pullRequest(number: $number) {
+            reviewThreads(first: 100, after: $cursor) {
+              nodes { isResolved comments(first: 1) { nodes { body author { login __typename } } } }
+              pageInfo { hasNextPage endCursor }
+            }
+          } }
+        }`,
+        variables: { owner, repo, number: Number(prNumber), cursor }
+      })
+    });
+    if (!response.ok) throw new Error(`Review threads API failed: ${response.status}`);
+    const data = await response.json();
+    const connection = data.data?.repository?.pullRequest?.reviewThreads;
+    if (data.errors || !connection) throw new Error("Could not validate unresolved review threads.");
+    threads.push(...connection.nodes);
+    cursor = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
+  } while (cursor);
+  return threads;
+}
+
 const initialPull = await fetchPull();
 const headSha = eventHeadSha || initialPull.head?.sha;
 
@@ -73,10 +103,12 @@ async function fetchEvidence() {
   }
   if (!requestMarker) return "missing_marker";
 
-  const [reviews, reviewComments] = await Promise.all([
+  const [reviews, reviewComments, threads] = await Promise.all([
     listPaginated(`/repos/${owner}/${repo}/pulls/${prNumber}/reviews`),
-    listPaginated(`/repos/${owner}/${repo}/pulls/${prNumber}/comments`)
+    listPaginated(`/repos/${owner}/${repo}/pulls/${prNumber}/comments`),
+    fetchReviewThreads()
   ]);
+  if (hasUnresolvedCodexFindings(threads)) return "fail";
   const nativeResult = codexNativeVerdictForHead(
     reviews,
     reviewComments,
@@ -114,9 +146,11 @@ let lastError = null;
 while (Date.now() - started <= maxWaitMs) {
   try {
     outcome = await fetchEvidence();
+    if (["pass", "fail"].includes(outcome) && !await currentHeadMatches()) outcome = "stale";
     lastError = null;
     if (["pass", "fail", "stale"].includes(outcome)) break;
   } catch (error) {
+    outcome = "pending";
     lastError = error;
   }
 
@@ -126,6 +160,10 @@ while (Date.now() - started <= maxWaitMs) {
 }
 
 if (outcome === "stale") {
+  if (requireHeadMatch) {
+    console.error(`Codex Review failed: PR head moved from ${headSha} during validation.`);
+    process.exit(1);
+  }
   console.log(`Codex Review skipped stale run for ${headSha}; PR head moved.`);
   process.exit(0);
 }

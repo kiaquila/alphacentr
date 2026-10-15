@@ -136,8 +136,8 @@ export function extractCodexPriority(body) {
 }
 
 export function containsBlockingCodexSeverity(body) {
-  const priority = extractCodexPriority(body);
-  return priority !== null && priority <= 2;
+  return [...String(body || "").matchAll(/\bP([0-3])\b/gi)]
+    .some((match) => Number(match[1]) <= 2);
 }
 
 export function classifyCodexNativeReview(review, reviewComments = [], headSha) {
@@ -191,6 +191,18 @@ export function codexNativeVerdictForHead(
 
 export function isAcceptableCodexSummaryComment(comment, headSha, requestedAt, sourceCommentId) {
   const body = String(comment?.body || "");
+  // Keep the explicit legacy/receipt verdict. The mutable structured summary is
+  // a wakeup signal only; its presence, status text, or reactions cannot pass.
+  const receipt = body.replace(/^<!-- codex-review-receipt:v1 -->\s*/i, "");
+  const content = receipt.replace(/\s*<details>[\s\S]*<\/details>\s*$/i, "").trim();
+  const verdict = content.match(/^Codex Review:\s*Didn't find any major issues\.([^\n]*)\n\s*\*\*Reviewed commit:\*\*\s*`([a-f0-9]{10}|[a-f0-9]{40})`\s*$/i);
+  if (!verdict || containsBlockingCodexSeverity(body)) return false;
+  // Native receipts vary their congratulatory suffix (for example "Bravo.").
+  // Keep that legacy flexibility without accepting an explicit contrary result.
+  if (/\b(?:but|however|although|yet|found|issues?|findings?|unresolved|blocking|problems?|bugs?|errors?|failed|pending|running|incomplete)\b/i.test(verdict[1])) return false;
+  if ((body.match(/codex-review-receipt:/gi) || []).length > 1 ||
+      (body.match(/\*\*Reviewed commit:\*\*/gi) || []).length !== 1) return false;
+  if (normalize(verdict[2]) !== normalize(String(headSha || "").slice(0, verdict[2].length))) return false;
   const shortSha = String(headSha || "").slice(0, 10);
   const commentCreatedAt = Date.parse(comment?.created_at || "");
   const requestTime = Date.parse(requestedAt || "");
@@ -203,5 +215,19 @@ export function isAcceptableCodexSummaryComment(comment, headSha, requestedAt, s
     isTrustedCodexLogin(comment?.user?.login) &&
     /^Codex Review:\s*Didn't find any major issues\./im.test(body) &&
     Boolean(shortSha) &&
-    new RegExp(`\\*\\*Reviewed commit:\\*\\*\\s*\\\`${shortSha}\\\``, "i").test(body);
+    new RegExp(`\\*\\*Reviewed commit:\\*\\*\\s*\\\`${verdict[2]}\\\``, "i").test(body);
+}
+
+export function hasUnresolvedCodexFindings(threads = []) {
+  return threads.some((thread) => {
+    const finding = thread.comments?.nodes?.[0];
+    const author = finding?.author;
+    // GraphQL Bot.login omits the REST API's [bot] suffix. Require the Bot
+    // type before normalizing that representation to the trusted identity.
+    const trusted = author?.__typename === "Bot" &&
+      isTrustedCodexLogin(`${String(author.login || "").replace(/\[bot\]$/i, "")}[bot]`);
+    if (thread.isResolved || !trusted) return false;
+    const priority = extractCodexPriority(finding.body);
+    return priority === null || priority <= 2;
+  });
 }

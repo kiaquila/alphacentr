@@ -121,3 +121,29 @@ npm --prefix site run check
 ```bash
 npm --prefix site run dev
 ```
+
+## Codex review automation
+
+Run the gate regression suite with `node --test tests/*.test.mjs` (also run by
+Project CI). Review evidence remains bound to the requested PR head and the
+trusted `chatgpt-codex-connector[bot]` identity. Legacy no-findings comments and
+native `codex-review-receipt:v1` comments require an explicit clean verdict and
+the reviewed commit. Formal native reviews remain supported. Unresolved P0-P2
+or unclassified Codex review threads block the gate, including findings from an
+earlier head. P3 advisories retain their non-blocking behavior. GraphQL thread
+authors must have the `Bot` type and the trusted Codex login.
+
+Created and edited receipt/summary comments wake the trusted default-branch
+gate. The mutable `codex-pull-request-review-summary` / `codex-review-state:v1`
+summary is only a wakeup signal, never successful review evidence. Its original
+creation time therefore does not prevent an edit from waking the gate. Requeue
+waits for active runs, serializes native events, and skips evidence already
+evaluated by a later run; new edits trigger another evaluation. Both requeue
+and gate validation recheck the live PR head to guard against concurrent pushes.
+
+When installing a routing fix, the PR still executes the gate from `main`.
+After a trusted current-head review request and a real native receipt/review,
+rerun the existing PR workflow through GitHub Actions if the old event filter
+misses the notification. This evaluates real evidence with the trusted policy;
+it does not execute proposed gate code with elevated permissions. Once merged,
+the new event routing takes effect on the default branch.
