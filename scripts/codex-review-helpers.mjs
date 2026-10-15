@@ -136,8 +136,8 @@ export function extractCodexPriority(body) {
 }
 
 export function containsBlockingCodexSeverity(body) {
-  const priority = extractCodexPriority(body);
-  return priority !== null && priority <= 2;
+  return [...String(body || "").matchAll(/\bP([0-3])\b/gi)]
+    .some((match) => Number(match[1]) <= 2);
 }
 
 export function classifyCodexNativeReview(review, reviewComments = [], headSha) {
@@ -191,6 +191,15 @@ export function codexNativeVerdictForHead(
 
 export function isAcceptableCodexSummaryComment(comment, headSha, requestedAt, sourceCommentId) {
   const body = String(comment?.body || "");
+  // Keep the explicit legacy/receipt verdict. The mutable structured summary is
+  // a wakeup signal only; its presence, status text, or reactions cannot pass.
+  const receipt = body.replace(/^<!-- codex-review-receipt:v1 -->\s*/i, "");
+  const content = receipt.replace(/\s*<details>[\s\S]*<\/details>\s*$/i, "").trim();
+  const verdict = content.match(/^Codex Review:\s*Didn't find any major issues\.(?:[^\S\n]*(?::rocket:|🚀|Keep it up!))?\s*\n\s*\*\*Reviewed commit:\*\*\s*`([a-f0-9]{10}|[a-f0-9]{40})`\s*$/i);
+  if (!verdict || containsBlockingCodexSeverity(body)) return false;
+  if ((body.match(/codex-review-receipt:/gi) || []).length > 1 ||
+      (body.match(/\*\*Reviewed commit:\*\*/gi) || []).length !== 1) return false;
+  if (normalize(verdict[1]) !== normalize(String(headSha || "").slice(0, verdict[1].length))) return false;
   const shortSha = String(headSha || "").slice(0, 10);
   const commentCreatedAt = Date.parse(comment?.created_at || "");
   const requestTime = Date.parse(requestedAt || "");
@@ -203,5 +212,10 @@ export function isAcceptableCodexSummaryComment(comment, headSha, requestedAt, s
     isTrustedCodexLogin(comment?.user?.login) &&
     /^Codex Review:\s*Didn't find any major issues\./im.test(body) &&
     Boolean(shortSha) &&
-    new RegExp(`\\*\\*Reviewed commit:\\*\\*\\s*\\\`${shortSha}\\\``, "i").test(body);
+    new RegExp(`\\*\\*Reviewed commit:\\*\\*\\s*\\\`${verdict[1]}\\\``, "i").test(body);
+}
+
+export function hasUnresolvedCodexFindings(threads = []) {
+  return threads.some((thread) => !thread.isResolved &&
+    isTrustedCodexLogin(thread.comments?.nodes?.[0]?.author?.login));
 }

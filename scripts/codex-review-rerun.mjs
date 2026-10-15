@@ -15,9 +15,12 @@ const ACTIVE_RUN_POLL_INTERVAL_MS = 10_000;
 const MAX_ACTIVE_RUN_POLLS = 24;
 
 export function shouldRouteCodexReviewRerunEvent(event) {
-  if (event?.review) return isTrustedCodexLogin(event.review.user?.login);
+  if (event?.review) return (!event.action || event.action === "submitted") &&
+    isTrustedCodexLogin(event.review.user?.login);
   if (!event?.issue?.pull_request || !event?.comment) return false;
-  return /^Codex Review:/i.test(String(event.comment.body || "")) &&
+  if (event.action && !["created", "edited"].includes(event.action)) return false;
+  // Routing is only a wakeup hint. Structured summary state is never a verdict.
+  return /^(?:Codex Review:|<!-- codex-review-receipt:v1 -->|<!-- codex-pull-request-review-summary -->)/i.test(String(event.comment.body || "")) &&
     isTrustedCodexLogin(event.comment.user?.login);
 }
 
@@ -62,6 +65,8 @@ export async function rerunCodexReviewForHead({
   token,
   repository,
   headSha,
+  pullNumber,
+  evidenceUpdatedAt,
   request = defaultRequest,
   sleep = defaultSleep,
   maxActiveRunPolls = MAX_ACTIVE_RUN_POLLS
@@ -71,12 +76,20 @@ export async function rerunCodexReviewForHead({
   }
 
   const [owner, repo] = repository.split("/");
+  async function headIsCurrent() {
+    if (!pullNumber) return true;
+    const pull = await request(token, repository, `/repos/${owner}/${repo}/pulls/${pullNumber}`);
+    return pull.state === "open" && pull.head?.sha === headSha;
+  }
+  const staleResult = { action: "stale", run: null, message: `PR head moved or closed; no rerun for ${headSha}.` };
+  if (!await headIsCurrent()) return staleResult;
   const runsPath = `/repos/${owner}/${repo}/actions/workflows/codex-review.yml/runs?event=pull_request&head_sha=${encodeURIComponent(headSha)}&per_page=100`;
   let data = await request(token, repository, runsPath);
   let selected = selectCodexReviewRun(data.workflow_runs || [], headSha);
 
   for (let poll = 0; selected.action === "wait_for_active_then_rerun" && poll < maxActiveRunPolls; poll += 1) {
     await sleep(ACTIVE_RUN_POLL_INTERVAL_MS);
+    if (!await headIsCurrent()) return staleResult;
     data = await request(token, repository, runsPath);
     selected = selectCodexReviewRun(data.workflow_runs || [], headSha);
   }
@@ -88,6 +101,12 @@ export async function rerunCodexReviewForHead({
   }
 
   if (selected.action === "rerun") {
+    // Serialized receipt/summary events can refer to evidence already evaluated
+    // by the preceding rerun. A newer edit still triggers a new evaluation.
+    if (Date.parse(selected.run.run_started_at || "") > Date.parse(evidenceUpdatedAt || "")) {
+      return { ...selected, action: "already_evaluated", message: `Codex Review already evaluated evidence for ${headSha}.` };
+    }
+    if (!await headIsCurrent()) return staleResult;
     await request(
       token,
       repository,
@@ -108,17 +127,17 @@ export async function rerunCodexReviewForHead({
 }
 
 async function resolveHeadSha({ token, repository, event, request = defaultRequest }) {
-  if (event?.pull_request?.head?.sha) return event.pull_request.head.sha;
-  if (!event?.issue?.pull_request || !event?.issue?.number) {
+  const pullNumber = event?.pull_request?.number || (event?.issue?.pull_request && event.issue.number);
+  if (!pullNumber) {
     throw new Error("Could not resolve pull request from event.");
   }
   const [owner, repo] = repository.split("/");
   const pull = await request(
     token,
     repository,
-    `/repos/${owner}/${repo}/pulls/${event.issue.number}`
+    `/repos/${owner}/${repo}/pulls/${pullNumber}`
   );
-  return pull.head?.sha;
+  return { headSha: pull.head?.sha, pullNumber };
 }
 
 async function main() {
@@ -135,8 +154,9 @@ async function main() {
     return;
   }
 
-  const headSha = await resolveHeadSha({ token, repository, event });
-  const result = await rerunCodexReviewForHead({ token, repository, headSha });
+  const { headSha, pullNumber } = await resolveHeadSha({ token, repository, event });
+  const evidenceUpdatedAt = event.comment?.updated_at || event.comment?.created_at || event.review?.submitted_at;
+  const result = await rerunCodexReviewForHead({ token, repository, headSha, pullNumber, evidenceUpdatedAt });
   console.log(result.message);
 }
 

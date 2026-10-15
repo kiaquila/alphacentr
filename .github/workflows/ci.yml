@@ -39,4 +39,4 @@ jobs:
           node-version: "22.18.0"
 
       - name: Test Codex review gate policy
-        run: node --test tests/codex-review-gate.test.mjs
+        run: node --test tests/*.test.mjs
