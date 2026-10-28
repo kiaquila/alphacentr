@@ -27,8 +27,18 @@ ${legacy}
 <details> <summary>ℹ️ About Codex in GitHub</summary>
 <br/>
 
-[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general).
+[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you
+- Open a pull request for review
+- Mark a draft as ready
+- Comment "@codex review".
+
 If Codex has suggestions, it will comment; otherwise it will react with 👍.
+
+
+
+
+Codex can also answer questions or update the PR. Try commenting "@codex address that feedback".
+
 </details>`;
 const structured = `<!-- codex-pull-request-review-summary -->
 <!-- codex-review-state:v1 ${JSON.stringify({
@@ -45,13 +55,14 @@ const acceptable = (candidate) => isAcceptableCodexSummaryComment(candidate, hea
 
 test("native receipt, full SHA receipt, and legacy remain explicit positive evidence", () => {
   for (const body of [receipt, legacy, receipt.replace("2667f79cd7`", `${headSha}\``),
-    ...["Keep it up!", "Bravo.", "Looks great.", "🎉"].map((suffix) => legacy.replace(":rocket:", suffix))]) {
+    ...["Keep it up!", "Bravo.", "🎉"].map((suffix) => legacy.replace(":rocket:", suffix))]) {
     assert.equal(acceptable({ ...comment, body }), true, body);
   }
 });
 
 test("receipt evidence rejects spoofed, stale, malformed, ambiguous and negative results", () => {
   const badBodies = [
+    legacy.replace(":rocket:", "Looks great."),
     receipt.replace("2667f79cd7", "0000000000"),
     receipt.replace("2667f79cd7", `${headSha}a`),
     receipt.replace("2667f79cd7", "2667f79cd"),
